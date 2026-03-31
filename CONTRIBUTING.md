@@ -26,8 +26,8 @@ Thank you for your interest in contributing to **wt** — the Git Worktree Manag
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourorg/wt.git
-cd wt
+git clone git@github.com:yann-lauwers/tmux-worktree-manager.git
+cd tmux-worktree-manager
 
 # Install dependencies
 brew install yq tmux bats-core
