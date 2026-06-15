@@ -194,16 +194,19 @@ get_slot_for_worktree() {
 
 # Claim a slot for a worktree (with file locking)
 # Returns the slot number or fails
+# Optional port_base and services_per_slot enable system port availability checks
 claim_slot() {
     local project="$1"
     local branch="$2"
     local max_slots="${3:-3}"
+    local port_base="${4:-}"
+    local services_per_slot="${5:-2}"
 
     init_slots_file
     local file
     file=$(slots_file)
 
-    with_file_lock "$file" _claim_slot_locked "$project" "$branch" "$max_slots" "$file"
+    with_file_lock "$file" _claim_slot_locked "$project" "$branch" "$max_slots" "$file" "$port_base" "$services_per_slot"
 }
 
 _claim_slot_locked() {
@@ -211,6 +214,8 @@ _claim_slot_locked() {
     local branch="$2"
     local max_slots="$3"
     local file="$4"
+    local port_base="${5:-}"
+    local services_per_slot="${6:-2}"
 
     local sanitized
     sanitized=$(sanitize_branch_name "$branch")
@@ -241,9 +246,25 @@ _claim_slot_locked() {
         fi
     done <<< "$assignments"
 
-    # Find first available
+    # Find first available (not claimed by another worktree AND ports free on system)
     for ((i = 0; i < max_slots; i++)); do
         if [[ "${used_slots[$i]}" == "0" ]]; then
+            # If port_base provided, verify all ports for this slot are free
+            if [[ -n "$port_base" ]]; then
+                local ports_ok=true
+                for ((j = 0; j < services_per_slot; j++)); do
+                    local candidate_port=$((port_base + (i * services_per_slot) + j))
+                    if port_in_use "$candidate_port"; then
+                        log_warn "Slot $i skipped: port $candidate_port already in use on system"
+                        ports_ok=false
+                        break
+                    fi
+                done
+                if [[ "$ports_ok" != "true" ]]; then
+                    continue
+                fi
+            fi
+
             # Claim this slot
             yq -i ".slots.\"$project\".\"$sanitized\" = $i" "$file"
             echo "$i"
@@ -322,16 +343,17 @@ find_available_port() {
     local min="$1"
     local max="$2"
     local preferred="${3:-}"
+    local exclude="${4:-}"
 
     # Try preferred port first
-    if [[ -n "$preferred" ]] && is_port_available "$preferred"; then
+    if [[ -n "$preferred" ]] && is_port_available "$preferred" && [[ " $exclude " != *" $preferred "* ]]; then
         echo "$preferred"
         return 0
     fi
 
     # Scan range
     for ((port = min; port <= max; port++)); do
-        if is_port_available "$port"; then
+        if is_port_available "$port" && [[ " $exclude " != *" $port "* ]]; then
             echo "$port"
             return 0
         fi

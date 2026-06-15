@@ -65,9 +65,6 @@ cmd_status() {
     local slot
     slot=$(get_worktree_slot "$project" "$branch")
 
-    local session
-    session=$(get_session_name "$project" "$branch")
-
     local created_at
     created_at=$(get_worktree_state "$project" "$branch" "created_at")
 
@@ -75,7 +72,7 @@ cmd_status() {
     cleanup_stale_services "$project" "$branch"
 
     echo ""
-    echo -e "${BOLD}Worktree Status${NC}"
+    echo -e "${BOLD}WORKTREE STATUS${NC}"
     echo "$(printf '%.0s-' {1..50})"
     echo ""
 
@@ -102,7 +99,7 @@ cmd_status() {
 
         # Ahead/behind info
         local tracking
-        tracking=$(echo "$git_status" | grep '^# branch.upstream' | cut -d' ' -f3)
+        tracking=$(echo "$git_status" | grep '^# branch.upstream' | cut -d' ' -f3 || true)
         if [[ -n "$tracking" ]]; then
             local ab_line
             ab_line=$(echo "$git_status" | grep '^# branch.ab')
@@ -113,45 +110,45 @@ cmd_status() {
         fi
     fi
 
-    echo ""
-    echo -e "${BOLD}tmux Session${NC}"
-    echo "$(printf '%.0s-' {1..50})"
-    echo ""
-
-    print_kv "Session" "$session"
-
-    if session_exists "$session"; then
-        echo -e "$(printf '%-20s' "Status:")${GREEN}active${NC}"
-
-        # List windows
-        echo ""
-        echo "Windows:"
-        session_info "$session" | while IFS=: read -r idx name active; do
-            local marker=""
-            [[ "$active" == "1" ]] && marker=" ${CYAN}*${NC}"
-            echo -e "  $idx: $name$marker"
-        done
-    else
-        echo -e "$(printf '%-20s' "Status:")${YELLOW}inactive${NC}"
-    fi
-
-    # Show ports
-    echo ""
-    echo -e "${BOLD}Ports${NC}"
-    echo "$(printf '%.0s-' {1..50})"
-
-    while IFS=: read -r svc port; do
-        [[ -z "$svc" ]] && continue
-        local in_use=""
-        if port_in_use "$port"; then
-            in_use=" ${GREEN}(in use)${NC}"
-        fi
-        echo -e "  $(printf '%-25s' "$svc:") $port$in_use"
-    done < <(calculate_worktree_ports "$branch" "$PROJECT_CONFIG_FILE" "$slot")
-
-    # Show services
+    # Show services (includes port info)
     if [[ "$show_services" -eq 1 ]] || [[ "$(get_services "$PROJECT_CONFIG_FILE")" -gt 0 ]]; then
         list_services_status "$project" "$branch" "$PROJECT_CONFIG_FILE"
+    else
+        # No services configured — show ports standalone
+        echo ""
+        echo -e "${BOLD}Ports${NC}"
+        echo "$(printf '%.0s-' {1..50})"
+
+        while IFS=: read -r svc port; do
+            [[ -z "$svc" ]] && continue
+            local in_use=""
+            if port_in_use "$port"; then
+                in_use=" ${GREEN}(in use)${NC}"
+            fi
+            echo -e "  $(printf '%-25s' "$svc:") $port$in_use"
+        done < <(calculate_worktree_ports "$branch" "$PROJECT_CONFIG_FILE" "$slot")
+    fi
+
+    # DB connection string (if configured)
+    # Export port vars so the template can resolve
+    export_port_vars "$branch" "$PROJECT_CONFIG_FILE" "$slot" "$project"
+    local db_url
+    if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE"); then
+        echo ""
+        echo -e "${BOLD}Database${NC}"
+        echo "$(printf '%.0s-' {1..50})"
+        # Parse components from postgresql://user@host:port/dbname
+        local db_user db_host db_port db_name
+        db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+        db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+        db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+        db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+        print_kv "Host" "$db_host"
+        print_kv "Port" "$db_port"
+        print_kv "User" "$db_user"
+        print_kv "Password" "(none)"
+        print_kv "Database" "$db_name"
+        print_kv "Connection string" "$db_url"
     fi
 
     echo ""

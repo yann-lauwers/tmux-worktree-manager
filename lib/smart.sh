@@ -1,5 +1,5 @@
 #!/bin/bash
-# smart.sh - Shared helpers for smart commands (new, open, ls, rm, prune, code, pr)
+# smart.sh - Shared helpers for smart commands (create, open, ls, rm, prune, code, pr)
 #
 # Depends on: lib/utils.sh (colors, logging, die)
 
@@ -35,6 +35,14 @@ smart_detect_project() {
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
     if [[ "$repo_root" == *"/.worktrees/"* ]]; then
         repo_root="${repo_root%/.worktrees/*}"
+    else
+        # For external worktrees (e.g. conductor), resolve via git-common-dir
+        local git_dir git_common_dir
+        git_dir=$(git -C "$repo_root" rev-parse --git-dir 2>/dev/null)
+        git_common_dir=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null)
+        if [[ "$git_dir" != "$git_common_dir" ]]; then
+            repo_root="${git_common_dir%/.git}"
+        fi
     fi
 
     local name
@@ -134,7 +142,7 @@ smart_pick_worktree() {
     entries=$(smart_gather_worktrees "$project")
 
     if [[ -z "$entries" ]]; then
-        die "No worktrees found. Create one with: wt new <branch>"
+        die "No worktrees found. Create one with: wt create <branch>"
     fi
 
     local count
@@ -233,14 +241,39 @@ smart_pr_badge() {
 
     if [[ "$state" == "MERGED" ]]; then
         printf '%b%s#%s%s merged%b' "$MAGENTA" "$link_start" "$number" "$link_end" "$NC"
+    elif [[ "$state" == "CLOSED" ]]; then
+        printf '%b%s#%s%s closed%b' "$RED" "$link_start" "$number" "$link_end" "$NC"
     elif [[ "$draft" == "true" ]]; then
         printf '%b%s#%s%s draft%b' "$DIM" "$link_start" "$number" "$link_end" "$NC"
     elif [[ "$state" == "OPEN" ]]; then
         printf '%b%s#%s%s open%b' "$GREEN" "$link_start" "$number" "$link_end" "$NC"
-    elif [[ "$state" == "CLOSED" ]]; then
-        printf '%b%s#%s%s closed%b' "$RED" "$link_start" "$number" "$link_end" "$NC"
     else
         printf '%b%s#%s%s%b' "$DIM" "$link_start" "$number" "$link_end" "$NC"
+    fi
+}
+
+# ─── User identity ──────────────────────────────────────────────────────────
+
+# Get username for branch naming
+# Priority: ~/.config/wt/config.yaml -> user | gh api user -> login
+smart_get_user() {
+    # 1. Global wt config
+    local global_config="$HOME/.config/wt/config.yaml"
+    if [[ -f "$global_config" ]]; then
+        local user
+        user=$(yq -r '.user // empty' "$global_config" 2>/dev/null || true)
+        if [[ -n "$user" ]]; then
+            echo "$user"
+            return
+        fi
+    fi
+
+    # 2. GitHub username
+    local gh_user
+    gh_user=$(gh api user -q '.login' 2>/dev/null || true)
+    if [[ -n "$gh_user" ]]; then
+        echo "$gh_user"
+        return
     fi
 }
 
@@ -262,7 +295,7 @@ smart_is_linear_id() {
 }
 
 # Find Linear API key from multiple sources
-# Priority: WT_LINEAR_API_KEY env > ~/.config/wt/config.yaml > me/config.json > ~/.claude/me/config.json
+# Priority: WT_LINEAR_API_KEY env > pass-get <project>-linear > pass-get linear > ~/.config/wt/config.yaml > me/config.json > ~/.claude/me/config.json
 smart_find_linear_key() {
     # 1. Environment variable
     if [[ -n "${WT_LINEAR_API_KEY:-}" ]]; then
@@ -270,7 +303,30 @@ smart_find_linear_key() {
         return
     fi
 
-    # 2. Global wt config
+    # 2. Proton Pass via pass-get (canonical source for CLI tokens)
+    if command -v pass-get >/dev/null 2>&1; then
+        local key
+        local common_dir
+        common_dir=$(git rev-parse --git-common-dir 2>/dev/null || true)
+        if [[ -n "$common_dir" ]]; then
+            local project
+            project=$(basename "$(cd "$common_dir/.." && pwd)")
+            if [[ -n "$project" ]]; then
+                key=$(pass-get "${project}-linear" 2>/dev/null || true)
+                if [[ -n "$key" ]]; then
+                    echo "$key"
+                    return
+                fi
+            fi
+        fi
+        key=$(pass-get linear 2>/dev/null || true)
+        if [[ -n "$key" ]]; then
+            echo "$key"
+            return
+        fi
+    fi
+
+    # 3. Global wt config
     local global_config="$HOME/.config/wt/config.yaml"
     if [[ -f "$global_config" ]]; then
         local key

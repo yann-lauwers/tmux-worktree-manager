@@ -4,7 +4,7 @@ A CLI tool for managing git worktrees with tmux integration, automatic port allo
 
 ## Features
 
-- **Smart create** — `wt new NEX-1500` fetches the Linear issue title and creates a properly named branch + worktree
+- **Smart create** — `wt create NEX-1500` fetches the Linear issue title and creates a properly named branch + worktree
 - **Cross-project listing** — `wt ls` shows all worktrees across all projects with PR status badges
 - **Interactive pickers** — `wt open`, `wt rm`, `wt prune` use fzf for fast selection
 - **Service management** — start/stop dev servers per worktree with automatic port allocation (no collisions)
@@ -66,9 +66,9 @@ wt init
 wt config --edit
 
 # 3. Create a worktree
-wt new feature/auth          # plain branch
-wt new NEX-1500              # from Linear ticket (requires API key)
-wt new                       # scratch worktree
+wt create feature/auth       # plain branch
+wt create NEX-1500           # from Linear ticket (requires API key)
+wt create                    # scratch worktree
 
 # 4. Open it
 wt open                      # fzf picker
@@ -88,7 +88,7 @@ wt delete feature/auth
 
 | Command | Description |
 |---------|-------------|
-| `wt new [ID\|branch]` | Smart create — Linear ticket, plain branch, or scratch |
+| `wt create [ID\|branch]` | Smart create — Linear ticket, plain branch, or scratch |
 | `wt open [query]` | Open worktree in cmux/tmux (fzf picker) |
 | `wt ls [-q]` | List all worktrees across projects with PR status |
 | `wt rm [branch]` | Smart delete with fzf multi-select |
@@ -186,7 +186,7 @@ editor: cursor
 # Opener for 'wt open' (default: auto-detect cmux > tmux > cd)
 opener: cmux
 
-# Linear API key for 'wt new NEX-xxx'
+# Linear API key for 'wt create NEX-xxx'
 linear:
   api_key: lin_api_xxxxx
 ```

@@ -70,6 +70,22 @@ cmd_smartlist() {
 
         local local_state="$HOME/.local/share/wt/state/${project}.state.yaml"
 
+        # Fan out PR-status lookups concurrently — one gh call per worktree, fired in
+        # parallel into a temp file each, then collected before rendering. Serial lookups
+        # made `wt ls` scale linearly with worktree count (N network round-trips); this
+        # caps wall time at the slowest single call instead of their sum.
+        local badge_dir=""
+        if [[ "$smart_quick" != "true" && -n "$repo_nwo" ]]; then
+            badge_dir=$(mktemp -d "${TMPDIR:-/tmp}/wt-badges.XXXXXX")
+            local bidx=0
+            for entry in "${entries[@]}"; do
+                smart_pr_badge "${entry%%|*}" "$repo_nwo" > "$badge_dir/$bidx" &
+                bidx=$((bidx + 1))
+            done
+            wait
+        fi
+
+        local idx=0
         for entry in "${entries[@]}"; do
             local branch="${entry%%|*}"
             local path="${entry#*|}"
@@ -84,17 +100,17 @@ cmd_smartlist() {
                 fi
             fi
 
-            # PR status
-            local pr=""
-            if [[ "$smart_quick" != "true" && -n "$repo_nwo" ]]; then
-                pr=$(smart_pr_badge "$branch" "$repo_nwo")
-            fi
+            # PR status (precomputed in parallel above; empty file = no PR)
             local pr_display=""
-            [[ -n "$pr" ]] && pr_display="  $pr"
+            if [[ -n "$badge_dir" && -s "$badge_dir/$idx" ]]; then
+                pr_display="  $(cat "$badge_dir/$idx")"
+            fi
+            idx=$((idx + 1))
 
             echo -e "  $branch${managed}${pr_display}"
             echo -e "  ${DIM}${path}${NC}"
         done
+        [[ -n "$badge_dir" ]] && rm -rf "$badge_dir"
         echo ""
         total=$((total + ${#entries[@]}))
     done

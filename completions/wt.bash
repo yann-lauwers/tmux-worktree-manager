@@ -5,7 +5,7 @@ _wt_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="new n open o ls rm prune code cursor pr create delete list start up stop down status st attach a run exec init config ports send s logs log panes doctor doc help version"
+    local commands="create c open o ls rm prune code cursor pr delete list start up stop down status st attach a run exec init config ports send s logs log panes doctor doc help version"
 
     # Get current word and previous word
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -78,9 +78,6 @@ _wt_completions() {
                 COMPREPLY=($(compgen -W "$commands" -- "$cur"))
             fi
             ;;
-        new|n)
-            COMPREPLY=($(compgen -W "-p --project -h --help" -- "$cur"))
-            ;;
         open|o)
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "-p --project -a --all -h --help" -- "$cur"))
@@ -111,9 +108,9 @@ _wt_completions() {
                 COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
             fi
             ;;
-        create)
+        create|c)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--from --no-setup -p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "--from --no-setup --skip-groups --no-db --db -p --project -h --help" -- "$cur"))
             else
                 # Complete with remote branches not yet checked out locally
                 local branches=$(git branch -r 2>/dev/null | sed 's|origin/||' | grep -v HEAD | sort -u)

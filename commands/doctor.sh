@@ -91,6 +91,20 @@ cmd_doctor() {
                 _doctor_fail "repo_path is not set in config"
             fi
 
+            # Check worktree_dir
+            local worktree_dir
+            worktree_dir=$(yaml_get "$config_file" ".worktree_dir" "")
+            if [[ -n "$worktree_dir" ]]; then
+                local expanded_wt_dir
+                expanded_wt_dir=$(expand_path "$worktree_dir")
+                _doctor_pass "worktree_dir configured: $worktree_dir"
+                if [[ -d "$expanded_wt_dir" ]]; then
+                    _doctor_pass "worktree_dir exists on disk"
+                else
+                    _doctor_warn "worktree_dir does not exist yet: $expanded_wt_dir (will be created on first wt create)"
+                fi
+            fi
+
             # Check port ranges
             local res_min res_max dyn_min dyn_max
             res_min=$(yaml_get "$config_file" ".ports.reserved.range.min" "")

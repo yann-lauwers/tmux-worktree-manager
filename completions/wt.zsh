@@ -8,8 +8,8 @@ _wt() {
     local -a projects
 
     commands=(
-        'new:Smart create (Linear-aware, scratch, plain branch)'
-        'n:Smart create (alias)'
+        'create:Create a worktree (Linear-aware, scratch, plain branch)'
+        'c:Create (alias)'
         'open:Open worktree in cmux/tmux (fzf picker)'
         'o:Open worktree (alias)'
         'ls:List worktrees across projects with PR status'
@@ -18,7 +18,6 @@ _wt() {
         'code:Open worktree in editor'
         'cursor:Open worktree in editor (alias)'
         'pr:Open PR in browser for a branch'
-        'create:Create a new worktree (basic)'
         'delete:Delete a worktree (basic)'
         'list:List worktrees (single project)'
         'start:Start services in worktree'
@@ -91,12 +90,6 @@ _wt() {
             ;;
         args)
             case "$words[1]" in
-                new|n)
-                    _arguments \
-                        '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:branch or Linear ID:'
-                    ;;
                 open|o)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
@@ -120,13 +113,16 @@ _wt() {
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:branch:_wt_worktrees'
                     ;;
-                create)
+                create|c)
                     _arguments \
                         '--from[Base branch to create from]:branch:_wt_branches' \
                         '--no-setup[Skip running setup steps]' \
+                        '--skip-groups[Skip setup groups (comma-separated)]:groups:' \
+                        '--no-db[Skip ephemeral DB setup]' \
+                        '--db[Force ephemeral DB setup (no prompt)]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:branch:_wt_branches'
+                        '1:branch or Linear ID:_wt_branches'
                     ;;
                 start|up)
                     _arguments \

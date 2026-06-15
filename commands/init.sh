@@ -75,6 +75,10 @@ cmd_init() {
 name: $project_name
 repo_path: $repo_root
 
+# External worktree directory (optional)
+# When set, worktrees are created here instead of \$repo/.worktrees/
+# worktree_dir: ~/worktrees/$project_name
+
 # Port configuration
 ports:
   # Reserved ports for services requiring specific ports
@@ -139,16 +143,22 @@ hooks: {}
   #   echo "Worktree deleted for \${BRANCH_NAME}"
 EOF
 
-    # Add .worktrees to .gitignore
-    local gitignore="$repo_root/.gitignore"
-    if [[ -f "$gitignore" ]]; then
-        if ! grep -q "^\.worktrees/?$" "$gitignore" 2>/dev/null; then
-            echo ".worktrees/" >> "$gitignore"
-            log_info "Added .worktrees/ to .gitignore"
+    # Add .worktrees to .gitignore (only when using default in-repo location)
+    local wt_dir
+    wt_dir=$(yaml_get "$config_file" ".worktree_dir" "")
+    if [[ -z "$wt_dir" ]]; then
+        local gitignore="$repo_root/.gitignore"
+        if [[ -f "$gitignore" ]]; then
+            if ! grep -q "^\.worktrees/?$" "$gitignore" 2>/dev/null; then
+                echo ".worktrees/" >> "$gitignore"
+                log_info "Added .worktrees/ to .gitignore"
+            fi
+        else
+            echo ".worktrees/" > "$gitignore"
+            log_info "Created .gitignore with .worktrees/"
         fi
     else
-        echo ".worktrees/" > "$gitignore"
-        log_info "Created .gitignore with .worktrees/"
+        log_info "External worktree_dir configured — skipping .gitignore"
     fi
 
     log_success "Configuration created: $config_file"

@@ -45,15 +45,34 @@ source "${WT_SCRIPT_DIR}/commands/send.sh"
 source "${WT_SCRIPT_DIR}/commands/logs.sh"
 source "${WT_SCRIPT_DIR}/commands/panes.sh"
 source "${WT_SCRIPT_DIR}/commands/doctor.sh"
-source "${WT_SCRIPT_DIR}/commands/new.sh"
 source "${WT_SCRIPT_DIR}/commands/open.sh"
 source "${WT_SCRIPT_DIR}/commands/smartlist.sh"
-source "${WT_SCRIPT_DIR}/commands/smartdelete.sh"
+source "${WT_SCRIPT_DIR}/commands/db.sh"
+# smartdelete.sh merged into delete.sh — rm is now an alias for delete
 source "${WT_SCRIPT_DIR}/commands/prune.sh"
 source "${WT_SCRIPT_DIR}/commands/code.sh"
 source "${WT_SCRIPT_DIR}/commands/pr.sh"
 
-# Show help
+# Show quick usage (wt with no args)
+show_usage() {
+    echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
+
+${BOLD}COMMANDS${NC}
+    ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
+    ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
+    ${CYAN}ls${NC}              List all worktrees across projects (PR status)
+    ${CYAN}rm${NC}              Smart delete (fzf multi-select)
+    ${CYAN}prune${NC}           Delete worktrees whose PRs have been merged
+    ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
+    ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
+    ${CYAN}start, up${NC}       Start services in a worktree
+    ${CYAN}stop, down${NC}      Stop services in a worktree
+    ${CYAN}status, st${NC}      Show worktree status
+
+Run ${CYAN}wt --help${NC} for all commands."
+}
+
+# Show full help (wt --help)
 show_help() {
     echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
 
@@ -61,17 +80,28 @@ ${BOLD}USAGE${NC}
     wt <command> [arguments] [options]
 
 ${BOLD}SMART COMMANDS${NC}
-    ${CYAN}new, n${NC}          Smart create (Linear-aware, scratch, plain branch)
+    ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
     ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
     ${CYAN}ls${NC}              List all worktrees across projects (PR status)
     ${CYAN}rm${NC}              Smart delete (fzf multi-select)
     ${CYAN}prune${NC}           Delete worktrees whose PRs have been merged
     ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
-    ${CYAN}pr${NC}              Open PR in browser for a branch
+    ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
+
+    Examples:
+        wt create NEX-1500                   # from Linear task
+        wt create fix/my-bug                 # plain branch
+        wt create fix/my-bug --from staging  # override base branch
+        wt create                            # scratch worktree
+        wt open                              # fzf picker
+        wt ls                                # all projects, PR status
+        wt rm                                # fzf multi-select delete
+        wt prune -y                          # auto-confirm merged cleanup
+        wt pr                                # open PR in browser
+        wt pr conflicts                      # check merge conflicts
 
 ${BOLD}CORE COMMANDS${NC}
     ${CYAN}Worktree Management${NC}
-    create          Create a new worktree (basic)
     delete          Delete a worktree (basic)
     list            List worktrees (single project)
 
@@ -98,33 +128,20 @@ ${BOLD}CORE COMMANDS${NC}
     init            Initialize project configuration
     config          View/edit configuration
 
+    Examples:
+        wt start nex-1500/slug --all    # start all services
+        wt stop nex-1500/slug --all     # stop all services
+        wt attach nex-1500/slug         # attach tmux session
+        wt send nex-1500/slug backend 'pnpm dev'
+        wt ports nex-1500/slug          # show port assignments
+        wt exec nex-1500/slug git status
+        wt doctor                       # run diagnostics
+
 ${BOLD}OPTIONS${NC}
     -p, --project   Specify project name
     -v, --verbose   Enable verbose output
     -h, --help      Show help for command
     --version       Show version
-
-${BOLD}EXAMPLES${NC}
-    # Smart create from Linear task
-    wt new NEX-1500
-
-    # Smart create with plain branch
-    wt new fix/my-bug
-
-    # Open worktree (fzf picker)
-    wt open
-
-    # List all worktrees with PR status
-    wt ls
-
-    # Basic worktree create
-    wt create feature/auth --from develop
-
-    # Start all services
-    wt start feature/auth --all
-
-    # Prune merged worktrees
-    wt prune
 
 ${BOLD}CONFIGURATION${NC}
     Global config:  ~/.config/wt/config.yaml
@@ -189,7 +206,7 @@ check_dependencies() {
 main() {
     # Handle no arguments
     if [[ $# -eq 0 ]]; then
-        show_help
+        show_usage
         exit 0
     fi
 
@@ -215,10 +232,9 @@ main() {
     init_config_dirs
 
     # Dispatch to command handlers
-    # Smart commands first (override core aliases where applicable)
     case "$command" in
-        n|new)
-            cmd_new "$@"
+        c|create)
+            cmd_create "$@"
             ;;
         o|open)
             cmd_open "$@"
@@ -227,7 +243,7 @@ main() {
             cmd_smartlist "$@"
             ;;
         rm)
-            cmd_smartdelete "$@"
+            WT_CMD_NAME="rm" cmd_delete "$@"
             ;;
         prune)
             cmd_prune "$@"
@@ -239,9 +255,6 @@ main() {
             cmd_pr "$@"
             ;;
         # Core commands
-        create)
-            cmd_create "$@"
-            ;;
         delete)
             cmd_delete "$@"
             ;;
@@ -286,6 +299,9 @@ main() {
             ;;
         doctor|doc)
             cmd_doctor "$@"
+            ;;
+        db)
+            cmd_db "$@"
             ;;
         *)
             log_error "Unknown command: $command"

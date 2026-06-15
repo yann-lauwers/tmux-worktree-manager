@@ -185,7 +185,7 @@ with_file_lock() {
 # Check if port is in use
 port_in_use() {
     local port="$1"
-    lsof -i ":$port" &>/dev/null
+    lsof -iTCP:"$port" -sTCP:LISTEN &>/dev/null
 }
 
 # Pretty print a key-value pair

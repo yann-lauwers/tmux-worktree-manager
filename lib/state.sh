@@ -98,6 +98,22 @@ _delete_worktree_state_locked() {
     log_debug "Deleted state for worktree: $branch"
 }
 
+# Resolve the state entry key whose stored .path matches a worktree path. The path is stable
+# across branch renames, so it relinks a worktree to its state entry when the key derived from
+# the branch name has drifted.
+state_key_for_path() {
+    local project="$1"
+    local path="$2"
+
+    local file
+    file=$(state_file "$project")
+    [[ -f "$file" ]] || return 0
+
+    PATH_MATCH="$path" yq -r \
+        '.worktrees | to_entries[] | select(.value.path == strenv(PATH_MATCH)) | .key' \
+        "$file" 2>/dev/null | head -1
+}
+
 # Create worktree state entry (with file locking)
 create_worktree_state() {
     local project="$1"
@@ -334,13 +350,12 @@ cleanup_stale_worktrees() {
     done < <(list_worktree_states "$project")
 }
 
-# Get tmux window name for a worktree (just the sanitized branch name)
+# Get tmux window name for a worktree (short dirname for Linear, sanitized for others)
 get_session_name() {
     local project="$1"
     local branch="$2"
 
-    # Window name is just the sanitized branch name
-    sanitize_branch_name "$branch"
+    worktree_dirname "$branch"
 }
 
 # Store tmux session in state

@@ -218,13 +218,40 @@ start_services_direct() {
     # Collect service commands
     local -a pids=()
     local -a svc_names=()
+    local -a svc_ports=()
 
     # Trap Ctrl+C to kill all background services
     _direct_cleanup() {
         echo ""
         log_info "Stopping all services..."
+        # Kill the whole process group of each tracked pipe PID — $! is the sed PID,
+        # but the node server lives in the subshell's group; PGID kill reaches it.
         for pid in "${pids[@]}"; do
-            kill "$pid" 2>/dev/null
+            local pgid
+            pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+            if [[ -n "$pgid" ]]; then
+                kill -TERM -- "-$pgid" 2>/dev/null
+            else
+                kill "$pid" 2>/dev/null
+            fi
+        done
+        # Kill any processes still listening on our ports (catches orphaned servers).
+        # SIGTERM then escalate to SIGKILL — mirrors stop_service so dev servers
+        # that ignore or slow-handle SIGTERM don't leak and keep holding the port.
+        for port in "${svc_ports[@]}"; do
+            local listen_pid
+            listen_pid=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)
+            if [[ -n "$listen_pid" ]]; then
+                kill -TERM "$listen_pid" 2>/dev/null
+            fi
+        done
+        sleep 1
+        for port in "${svc_ports[@]}"; do
+            local listen_pid
+            listen_pid=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)
+            if [[ -n "$listen_pid" ]]; then
+                kill -9 "$listen_pid" 2>/dev/null || true
+            fi
         done
         wait 2>/dev/null
         # Update state
@@ -235,6 +262,8 @@ start_services_direct() {
         trap - INT TERM
     }
     trap _direct_cleanup INT TERM
+
+    local failed=0
 
     while read -r name; do
         [[ -z "$name" ]] && continue
@@ -268,6 +297,7 @@ start_services_direct() {
         # Check port availability
         if ! is_port_available "$port"; then
             log_error "Port $port is already in use (service: $name)"
+            ((failed++))
             continue
         fi
 
@@ -295,6 +325,7 @@ start_services_direct() {
         ) 2>&1 | sed -u "s/^/[${name}] /" &
         pids+=($!)
         svc_names+=("$name")
+        svc_ports+=("$port")
 
         update_service_status "$project" "$branch" "$name" "running" "" "$port"
     done <<< "$service_names"
@@ -302,6 +333,10 @@ start_services_direct() {
     if [[ ${#pids[@]} -eq 0 ]]; then
         log_error "No services were started"
         return 1
+    fi
+
+    if [[ "$failed" -gt 0 ]]; then
+        log_warn "$failed service(s) failed to start (port conflict)"
     fi
 
     local svc_count=${#pids[@]}
@@ -345,11 +380,92 @@ stop_service() {
         fi
     fi
 
-    # Update state
-    update_service_status "$project" "$branch" "$service_name" "stopped"
+    # Port-based kill fallback — handles direct mode where tmux interrupt is a no-op.
+    # Resolve port from state first, then fall back to the computed port from
+    # config+slot so orphans from state-less or stale runs are still reachable.
+    local svc_port
+    svc_port=$(get_service_state "$project" "$branch" "$service_name" "port")
+    if [[ -z "$svc_port" ]] || [[ "$svc_port" == "null" ]]; then
+        local slot
+        slot=$(get_worktree_slot "$project" "$branch")
+        if [[ -n "$slot" ]]; then
+            local port_key
+            port_key=$(yq -r ".services[] | select(.name == \"$service_name\") | .port_key // \"\"" "$config_file" 2>/dev/null)
+            if [[ -n "$port_key" ]] && [[ "$port_key" != "null" ]]; then
+                svc_port=$(get_service_port "$port_key" "$branch" "$config_file" "$slot" "$project")
+            fi
+        fi
+    fi
 
-    log_success "Stopped: $service_name"
-    return 0
+    local kill_failed=0
+    if [[ -n "$svc_port" ]] && [[ "$svc_port" != "null" ]]; then
+        if ! kill_port_listeners "$svc_port"; then
+            kill_failed=1
+            log_error "Failed to free port $svc_port for service $service_name"
+        fi
+    fi
+
+    # Update state only when the kill actually freed the port — otherwise the
+    # next `wt start` will hit a port conflict that "Stopped: …" would have hidden.
+    if [[ "$kill_failed" -eq 0 ]]; then
+        update_service_status "$project" "$branch" "$service_name" "stopped"
+        log_success "Stopped: $service_name"
+        return 0
+    fi
+    return 1
+}
+
+# Kill every process listening on $port, escalating SIGTERM → SIGKILL, then
+# verify the port is actually free. Returns non-zero if anything still listens.
+kill_port_listeners() {
+    local port="$1"
+    local term_wait="${2:-3}"
+    local kill_wait="${3:-2}"
+
+    local listeners
+    listeners=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)
+    [[ -z "$listeners" ]] && return 0
+
+    # SIGTERM every listener (and its process group — catches parent supervisors
+    # like `next dev` / `turbo` that may otherwise respawn the worker).
+    while read -r pid; do
+        [[ -z "$pid" ]] && continue
+        local pgid
+        pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+        if [[ -n "$pgid" ]]; then
+            kill -TERM -- "-$pgid" 2>/dev/null || true
+        fi
+        kill -TERM "$pid" 2>/dev/null || true
+    done <<< "$listeners"
+
+    # Poll for graceful exit — next-server typically needs ~1–3s.
+    local waited=0
+    while (( waited < term_wait )); do
+        if [[ -z "$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)" ]]; then
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    # Escalate to SIGKILL on whatever still holds the port.
+    listeners=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)
+    while read -r pid; do
+        [[ -z "$pid" ]] && continue
+        kill -9 "$pid" 2>/dev/null || true
+    done <<< "$listeners"
+
+    waited=0
+    while (( waited < kill_wait )); do
+        if [[ -z "$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null)" ]]; then
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    # Port still held — caller decides how to surface.
+    return 1
 }
 
 # Start all services

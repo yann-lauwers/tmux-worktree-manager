@@ -197,9 +197,29 @@ cmd_ports() {
         local effective_port="${override:-$port}"
 
         echo "export $var_name=$effective_port"
+        export "$var_name=$effective_port"
     done < <(calculate_worktree_ports "$branch" "$PROJECT_CONFIG_FILE" "$slot")
 
     echo ""
+
+    # DB connection string (if configured)
+    local db_url
+    if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE"); then
+        echo -e "${BOLD}Database${NC}"
+        printf "%s\n" "$(printf '%.0s-' {1..60})"
+        local db_user db_host db_port db_name
+        db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+        db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+        db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+        db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+        print_kv "Host" "$db_host"
+        print_kv "Port" "$db_port"
+        print_kv "User" "$db_user"
+        print_kv "Password" "(none)"
+        print_kv "Database" "$db_name"
+        print_kv "Connection string" "$db_url"
+        echo ""
+    fi
 }
 
 show_ports_help() {

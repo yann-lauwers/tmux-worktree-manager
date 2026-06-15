@@ -100,6 +100,15 @@ list_worktrees_pretty() {
         local session
         session=$(sanitize_branch_name "$branch")
 
+        # Show git's actual checked-out branch for a live worktree; the stored branch drifts
+        # if the branch was renamed after the worktree was created.
+        local display_branch="$branch"
+        if [[ -d "$path" ]]; then
+            local live_branch
+            live_branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+            [[ -n "$live_branch" && "$live_branch" != "HEAD" ]] && display_branch="$live_branch"
+        fi
+
         if [[ "$show_status" -eq 1 ]]; then
             local session_status="inactive"
             local tmux_session
@@ -115,14 +124,14 @@ list_worktrees_pretty() {
             fi
 
             printf "%-30s %-8s %-15s %-10b%b\n" \
-                "$(truncate "$branch" 28)" \
+                "$(truncate "$display_branch" 28)" \
                 "$slot" \
                 "$(truncate "$session" 13)" \
                 "$session_status" \
                 "$dirty"
         else
             printf "%-30s %-8s %-40s\n" \
-                "$(truncate "$branch" 28)" \
+                "$(truncate "$display_branch" 28)" \
                 "$slot" \
                 "$(truncate "$path" 38)"
         fi
@@ -156,6 +165,14 @@ list_worktrees_json() {
 
         local session
         session=$(sanitize_branch_name "$branch")
+
+        # Report git's actual checked-out branch for a live worktree; the stored branch drifts
+        # if the branch was renamed after the worktree was created.
+        if [[ -d "$path" ]]; then
+            local live_branch
+            live_branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+            [[ -n "$live_branch" && "$live_branch" != "HEAD" ]] && branch="$live_branch"
+        fi
 
         local session_active="false"
         if window_exists "$tmux_session" "$session" 2>/dev/null; then

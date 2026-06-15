@@ -79,17 +79,14 @@ cmd_stop() {
     load_project_config "$project"
 
     # Stop services
-    if [[ "$all" -eq 1 ]]; then
-        stop_all_services "$project" "$branch" "$PROJECT_CONFIG_FILE"
-    elif [[ ${#services[@]} -gt 0 ]]; then
-        # Stop multiple services
+    if [[ ${#services[@]} -gt 0 ]]; then
+        # Specific service(s) requested
         for svc in "${services[@]}"; do
             stop_service "$project" "$branch" "$svc" "$PROJECT_CONFIG_FILE"
         done
     else
-        log_error "Specify service name(s), --all, or --service <name>"
-        show_stop_help
-        return 1
+        # Default (and explicit --all): stop all services
+        stop_all_services "$project" "$branch" "$PROJECT_CONFIG_FILE"
     fi
 
     # Run post_stop hook if defined
@@ -101,28 +98,28 @@ show_stop_help() {
     cat << 'EOF'
 Usage: wt stop [service...] [options]
        wt stop <branch> [service...] [options]
-       wt stop --all [options]
 
-Stop services in a worktree.
+Stop services in a worktree. With no service names, stops all services
+(this is the default; --all is kept for backwards compatibility).
 
 When run inside a worktree, the branch is auto-detected and positional
 arguments are treated as service names. Multiple services can be
 specified.
 
 Arguments:
-  <service...>      One or more service names
+  <service...>      One or more service names (omit to stop all)
   <branch>          Branch name (required when outside a worktree)
 
 Options:
   -s, --service     Stop a specific service (alternative syntax)
-  -a, --all         Stop all services
+  -a, --all         Stop all services (now the default — optional)
   -p, --project     Project name (auto-detected if not specified)
   -h, --help        Show this help message
 
 Examples:
+  wt stop                          # Stop all services (default)
   wt stop api-server               # Stop one service
   wt stop api-server indexer       # Stop multiple services
-  wt stop --all                    # Stop all services
-  wt stop feature/auth --all       # Outside worktree: specify branch
+  wt stop feature/auth             # Outside worktree: stop all for a branch
 EOF
 }

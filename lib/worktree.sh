@@ -5,20 +5,64 @@
 WT_DIR_NAME=".worktrees"
 
 # Get worktrees directory path
+# Uses PROJECT_WORKTREE_DIR (from project config) when set, otherwise falls back to $repo/.worktrees
 worktrees_dir() {
     local repo_root="${1:-$(git_root)}"
-    echo "$repo_root/$WT_DIR_NAME"
+    if [[ -n "${PROJECT_WORKTREE_DIR:-}" ]]; then
+        echo "$PROJECT_WORKTREE_DIR"
+    else
+        echo "$repo_root/$WT_DIR_NAME"
+    fi
 }
 
-# Get worktree path for a branch
+# Shorten branch name for directory use
+# Linear branches: user/prefix-1234-slug OR prefix-1234/slug -> prefix-1234
+# Everything else -> full sanitized name
+worktree_dirname() {
+    local branch="$1"
+    # Match user/prefix-number-slug (e.g. yann-lauwers/nex-1641-some-slug)
+    if [[ "$branch" =~ ^[a-zA-Z-]+/([a-zA-Z]+-[0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
+    # Match prefix-number/slug (e.g. nex-1234/some-slug)
+    elif [[ "$branch" =~ ^([a-zA-Z]+-[0-9]+)/ ]]; then
+        echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
+    else
+        sanitize_branch_name "$branch"
+    fi
+}
+
+# Resolve a worktree path from git's actual branch↔worktree mapping (the source of truth).
+# A branch renamed after its worktree was created no longer matches the dirname derived from
+# the branch string; git still records which directory holds the branch. The main worktree is
+# skipped so a branch checked out in the primary repo never resolves to the repo root.
+worktree_path_for_branch() {
+    local branch="$1"
+    local repo_root="${2:-$(git_root)}"
+
+    git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk \
+        -v ref="refs/heads/$branch" -v root="$repo_root" '
+        /^worktree / { p = substr($0, 10) }
+        $1 == "branch" && $2 == ref && p != root { print p; exit }
+    '
+}
+
+# Get worktree path for a branch. Prefers git's real mapping; falls back to the path derived
+# from the branch name when no live worktree holds the branch (e.g. during create).
 worktree_path() {
     local branch="$1"
     local repo_root="${2:-$(git_root)}"
 
-    local sanitized
-    sanitized=$(sanitize_branch_name "$branch")
+    local live_path
+    live_path=$(worktree_path_for_branch "$branch" "$repo_root")
+    if [[ -n "$live_path" ]]; then
+        echo "$live_path"
+        return
+    fi
 
-    echo "$(worktrees_dir "$repo_root")/$sanitized"
+    local dirname
+    dirname=$(worktree_dirname "$branch")
+
+    echo "$(worktrees_dir "$repo_root")/$dirname"
 }
 
 # Check if a worktree exists for a branch
@@ -79,15 +123,21 @@ create_worktree() {
     local wt_path
     wt_path=$(worktree_path "$branch" "$repo_root")
 
-    # Ensure .worktrees directory exists
-    ensure_dir "$(worktrees_dir "$repo_root")"
+    # Ensure worktrees directory exists
+    local wt_dir
+    wt_dir=$(worktrees_dir "$repo_root")
+    ensure_dir "$wt_dir"
 
-    # Add .worktrees to .gitignore if not already there
-    local gitignore="$repo_root/.gitignore"
-    if [[ -f "$gitignore" ]]; then
-        if ! grep -q "^$WT_DIR_NAME/?$" "$gitignore" 2>/dev/null; then
-            echo "$WT_DIR_NAME/" >> "$gitignore"
-            log_debug "Added $WT_DIR_NAME to .gitignore"
+    # Add to .gitignore only if worktrees are inside repo
+    if [[ "$wt_dir" == "$repo_root"/* ]]; then
+        local gitignore="$repo_root/.gitignore"
+        local dir_name
+        dir_name=$(basename "$wt_dir")
+        if [[ -f "$gitignore" ]]; then
+            if ! grep -q "^${dir_name}/?$" "$gitignore" 2>/dev/null; then
+                echo "${dir_name}/" >> "$gitignore"
+                log_debug "Added ${dir_name}/ to .gitignore"
+            fi
         fi
     fi
 
@@ -149,6 +199,16 @@ remove_worktree() {
     local wt_path
     wt_path=$(worktree_path "$branch" "$repo_root")
 
+    # Fall back to state file path if computed path doesn't exist
+    if [[ ! -d "$wt_path" ]] && [[ -n "${PROJECT_NAME:-}" ]]; then
+        local state_path
+        state_path=$(get_worktree_state "$PROJECT_NAME" "$branch" "path" 2>/dev/null)
+        if [[ -n "$state_path" ]] && [[ -d "$state_path" ]]; then
+            log_debug "Computed path $wt_path not found, using state path: $state_path"
+            wt_path="$state_path"
+        fi
+    fi
+
     if [[ ! -d "$wt_path" ]]; then
         log_warn "Worktree not found: $wt_path"
         return 1
@@ -185,7 +245,6 @@ remove_worktree() {
     # Prune worktree metadata
     git -C "$repo_root" worktree prune
 
-    log_success "Worktree removed: $branch"
     return 0
 }
 
@@ -205,6 +264,15 @@ exec_in_worktree() {
 
     local wt_path
     wt_path=$(worktree_path "$branch" "$repo_root")
+
+    # Fall back to state file path if computed path doesn't exist
+    if [[ ! -d "$wt_path" ]] && [[ -n "${PROJECT_NAME:-}" ]]; then
+        local state_path
+        state_path=$(get_worktree_state "$PROJECT_NAME" "$branch" "path" 2>/dev/null)
+        if [[ -n "$state_path" ]] && [[ -d "$state_path" ]]; then
+            wt_path="$state_path"
+        fi
+    fi
 
     if [[ ! -d "$wt_path" ]]; then
         log_error "Worktree not found for branch: $branch"

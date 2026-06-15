@@ -115,8 +115,8 @@ cmd_start() {
         die "Could not find slot for worktree. State may be corrupted."
     fi
 
-    # Export port and env variables
-    export_port_vars "$branch" "$PROJECT_CONFIG_FILE" "$slot"
+    # Export port and env variables (overrides set at create time are picked up automatically)
+    export_port_vars "$branch" "$PROJECT_CONFIG_FILE" "$slot" "$project"
     export_env_vars "$PROJECT_CONFIG_FILE"
 
     # Clean up stale service states

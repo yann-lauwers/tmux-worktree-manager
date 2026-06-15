@@ -245,8 +245,19 @@ load_project_config() {
         die "Dynamic port range out of bounds (must be 1-65535)"
     fi
 
+    # External worktree directory (optional — falls back to $repo/.worktrees)
+    PROJECT_WORKTREE_DIR=$(yaml_get "$config_file" ".worktree_dir" "")
+    if [[ -n "$PROJECT_WORKTREE_DIR" ]]; then
+        PROJECT_WORKTREE_DIR=$(expand_path "$PROJECT_WORKTREE_DIR")
+    else
+        PROJECT_WORKTREE_DIR=""
+    fi
+
     log_debug "Loaded config for project: $PROJECT_NAME"
     log_debug "  Repo path: $PROJECT_REPO_PATH"
+    if [[ -n "$PROJECT_WORKTREE_DIR" ]]; then
+        log_debug "  Worktree dir: $PROJECT_WORKTREE_DIR"
+    fi
     log_debug "  Reserved ports: $PROJECT_RESERVED_PORT_MIN-$PROJECT_RESERVED_PORT_MAX"
     log_debug "  Dynamic ports: $PROJECT_DYNAMIC_PORT_MIN-$PROJECT_DYNAMIC_PORT_MAX"
 }
@@ -333,6 +344,17 @@ run_hook() {
             log_warn "$hook_name hook exited with errors"
         fi
     fi
+}
+
+# Resolve DB URL template from project config
+# Requires PORT_* vars to be in scope (via export_port_vars or manual export)
+# Usage: resolve_db_url <config_file>
+resolve_db_url() {
+    local config_file="$1"
+    local template
+    template=$(yaml_get "$config_file" ".db.url_template" "")
+    [[ -z "$template" ]] && return 1
+    eval echo "$template" 2>/dev/null
 }
 
 # List all configured projects

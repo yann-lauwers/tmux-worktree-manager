@@ -423,8 +423,9 @@ setup_services_top_layout() {
         ((p++))
     done <<< "$all_pane_data"
 
-    # Select claude pane (pane 3 = bottom-left) as active
-    tmux select-pane -t "${session}:${window}.3"
+    # Select the first non-service pane as active (bottom area)
+    local active_pane=$((service_count < pane_count ? service_count : pane_count - 1))
+    tmux select-pane -t "${session}:${window}.${active_pane}" 2>/dev/null || true
 }
 
 # Custom layout: 2 services on top, 2 command panes on bottom
