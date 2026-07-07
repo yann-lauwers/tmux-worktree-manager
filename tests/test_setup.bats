@@ -176,7 +176,7 @@ teardown() {
     working_dir: .'
 
     run execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml"
-    [[ "$output" == *"summary"* ]] || [[ "$output" == *"Completed"* ]]
+    [[ "$output" == *"Setup:"* ]] && [[ "$output" == *"completed"* ]]
 }
 
 # --- run_setup_step ---

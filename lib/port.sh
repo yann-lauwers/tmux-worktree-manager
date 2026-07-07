@@ -71,9 +71,21 @@ calculate_worktree_ports() {
     local dynamic_services
     dynamic_services=$(yq -r '.ports.dynamic.services // {} | keys | .[]' "$config_file" 2>/dev/null)
 
-    # Output reserved service ports
+    # Output reserved service ports.
+    # Main-repo-root context (WT_MAIN_CONTEXT=1): the root runs on each service's
+    # conventional default (e.g. FE 3000 / BE 3001), which lives OUTSIDE the
+    # worktree reserved range. Read those from `.ports.main.<service>` when set,
+    # falling back to the slot-derived reserved port if a project omits the block.
     while IFS=: read -r svc_name offset; do
         [[ -z "$svc_name" ]] && continue
+        if [[ "${WT_MAIN_CONTEXT:-}" == "1" ]]; then
+            local main_port
+            main_port=$(yaml_get "$config_file" ".ports.main.\"$svc_name\"" "")
+            if [[ -n "$main_port" ]]; then
+                echo "$svc_name:$main_port"
+                continue
+            fi
+        fi
         svc_port=$(calculate_reserved_port "$slot" "$offset" "$reserved_base")
         echo "$svc_name:$svc_port"
     done <<< "$reserved_services"
@@ -314,7 +326,7 @@ list_slots() {
         return
     fi
 
-    yq -r ".slots.\"$project\" // {} | to_entries | .[] | \"\(.key):\(.value)\"" "$file" 2>/dev/null
+    yq -r ".slots.\"$project\" // {} | to_entries | .[] | .key + \":\" + (.value | tostring)" "$file" 2>/dev/null
 }
 
 # Get slot count in use for a project

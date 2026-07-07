@@ -351,10 +351,37 @@ run_hook() {
 # Usage: resolve_db_url <config_file>
 resolve_db_url() {
     local config_file="$1"
+    local worktree_path="${2:-}"
+
+    # The worktree's own env file is the source of truth for the DB the app connects to:
+    # it reflects an own ephemeral instance (--db), a borrowed parent instance (--stack-on),
+    # or a remote shared DB (--no-db) alike. The slot-derived template below cannot tell
+    # these apart, so prefer the env file whenever the worktree exists and one is configured.
+    local src_file src_var
+    src_file=$(yaml_get "$config_file" ".db.url_source.file" "")
+    src_var=$(yaml_get "$config_file" ".db.url_source.var" "")
+    if [[ -n "$worktree_path" && -n "$src_file" && -n "$src_var" && -f "$worktree_path/$src_file" ]]; then
+        local val
+        val=$(grep -E "^${src_var}=" "$worktree_path/$src_file" | head -1 | cut -d= -f2-)
+        val="${val%\"}"; val="${val#\"}"
+        val="${val%\'}"; val="${val#\'}"
+        if [[ -n "$val" ]]; then
+            echo "$val"
+            return 0
+        fi
+    fi
+
+    # Pre-create preview (no worktree yet) or no url_source configured: derive from the template.
     local template
     template=$(yaml_get "$config_file" ".db.url_template" "")
     [[ -z "$template" ]] && return 1
     eval echo "$template" 2>/dev/null
+}
+
+# Mask the password in a postgres URL for display: user:pass@host -> user:****@host.
+# URLs with no password (postgresql://user@host) are returned unchanged.
+redact_db_url() {
+    echo "$1" | sed -E 's|(://[^:/@]+):[^@]*@|\1:****@|'
 }
 
 # List all configured projects

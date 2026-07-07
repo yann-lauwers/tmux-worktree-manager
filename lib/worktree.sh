@@ -15,19 +15,18 @@ worktrees_dir() {
     fi
 }
 
-# Shorten branch name for directory use
-# Linear branches: user/prefix-1234-slug OR prefix-1234/slug -> prefix-1234
-# Everything else -> full sanitized name
+# Derive a directory name from a branch name.
+# An owner prefix (e.g. yann-lauwers/) is dropped, but the FULL ticket+slug is kept so two
+# branches on the same ticket get distinct dirs (nex-2308-chats-egress vs nex-2308-tools-workflow)
+# instead of colliding on the bare ticket number. Everything else -> full sanitized name.
 worktree_dirname() {
     local branch="$1"
-    # Match user/prefix-number-slug (e.g. yann-lauwers/nex-1641-some-slug)
-    if [[ "$branch" =~ ^[a-zA-Z-]+/([a-zA-Z]+-[0-9]+) ]]; then
-        echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
-    # Match prefix-number/slug (e.g. nex-1234/some-slug)
-    elif [[ "$branch" =~ ^([a-zA-Z]+-[0-9]+)/ ]]; then
-        echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
+    # owner/ticket-slug (e.g. yann-lauwers/nex-2308-chats-egress) -> nex-2308-chats-egress
+    if [[ "$branch" =~ ^[a-zA-Z][a-zA-Z-]*/([a-zA-Z]+-[0-9]+.*)$ ]]; then
+        sanitize_branch_name "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
+    # ticket/slug or type/slug (e.g. nex-2547/phase-rename, chore/lint-sweep) -> full sanitized name
     else
-        sanitize_branch_name "$branch"
+        sanitize_branch_name "$branch" | tr '[:upper:]' '[:lower:]'
     fi
 }
 
@@ -339,5 +338,22 @@ detect_worktree_branch() {
     fi
 
     echo ""
+    return 0
+}
+
+# True when the current directory is the MAIN checkout of a configured project
+# (not a worktree). At the main root --git-dir == --git-common-dir; inside a
+# worktree they differ. Also requires the resolved root to map to a configured
+# project (root == that project's repo_path, via detect_project), so the
+# exception stays scoped to known roots.
+detect_main_repo_root() {
+    is_git_repo 2>/dev/null || return 1
+
+    local git_dir git_common_dir
+    git_dir=$(git rev-parse --git-dir 2>/dev/null)
+    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+    [[ "$git_dir" == "$git_common_dir" ]] || return 1
+
+    [[ -n "$(detect_project)" ]] || return 1
     return 0
 }

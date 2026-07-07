@@ -91,8 +91,8 @@ wt delete feature/auth
 | `wt create [ID\|branch]` | Smart create — Linear ticket, plain branch, or scratch |
 | `wt open [query]` | Open worktree in cmux/tmux (fzf picker) |
 | `wt ls [-q]` | List all worktrees across projects with PR status |
-| `wt rm [branch]` | Smart delete with fzf multi-select |
-| `wt prune [-y]` | Delete worktrees whose PRs have been merged |
+| `wt rm [branch]` | Delete worktrees with fzf multi-select (merged/closed first, dirty flagged) |
+| `wt prune [-y]` | Merged/closed-PR worktrees only (alias for `wt rm --merged`); `-y` deletes them all |
 | `wt code [branch]` | Open worktree in editor (fzf picker) |
 | `wt pr [branch]` | Open PR in browser for a branch |
 

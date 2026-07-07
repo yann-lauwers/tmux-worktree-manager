@@ -13,8 +13,8 @@ _wt() {
         'open:Open worktree in cmux/tmux (fzf picker)'
         'o:Open worktree (alias)'
         'ls:List worktrees across projects with PR status'
-        'rm:Smart delete (fzf multi-select)'
-        'prune:Delete worktrees whose PRs have been merged'
+        'rm:Delete worktrees (fzf multi-select; --merged for merged/closed only)'
+        'prune:Delete merged/closed-PR worktrees (alias for rm --merged)'
         'code:Open worktree in editor'
         'cursor:Open worktree in editor (alias)'
         'pr:Open PR in browser for a branch'
@@ -99,8 +99,8 @@ _wt() {
                     ;;
                 prune)
                     _arguments \
+                        '(-y --yes)'{-y,--yes}'[Non-interactive: delete all merged/closed]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-y --yes)'{-y,--yes}'[Skip confirmation]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 code|cursor)
@@ -144,6 +144,8 @@ _wt() {
                 delete|rm)
                     _arguments \
                         '(-f --force)'{-f,--force}'[Force deletion]' \
+                        '(-m --merged)'{-m,--merged}'[Restrict picker to merged/closed-PR worktrees]' \
+                        '(-y --yes)'{-y,--yes}'[Non-interactive: delete all matching (pairs with --merged)]' \
                         '--keep-branch[Do not delete the git branch]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
@@ -221,6 +223,9 @@ _wt() {
                     ;;
                 rm)
                     _arguments \
+                        '(-f --force)'{-f,--force}'[Force deletion]' \
+                        '(-m --merged)'{-m,--merged}'[Restrict picker to merged/closed-PR worktrees]' \
+                        '(-y --yes)'{-y,--yes}'[Non-interactive: delete all matching (pairs with --merged)]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:branch:_wt_worktrees'

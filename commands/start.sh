@@ -72,6 +72,7 @@ cmd_start() {
 
     # Interpret positional arguments based on context
     local -a services=()
+    local is_main_root=0
     if [[ -n "$detected_branch" ]]; then
         # We're in a worktree - positional args are service names
         branch="$detected_branch"
@@ -81,6 +82,18 @@ cmd_start() {
             services=("$service")
         fi
         log_debug "In worktree, detected branch: $branch"
+    elif [[ ${#positionals[@]} -eq 0 ]] && detect_main_repo_root; then
+        # Main repo root: synthesize a slot-0 context for the current HEAD so the
+        # root runs the same start_services_direct + hook pipeline as a worktree.
+        is_main_root=1
+        branch=$(current_branch)
+        export WT_MAIN_CONTEXT=1
+        export WT_ROOT_WORKTREE_PATH="$(git_root)"
+        export WT_ROOT_SLOT=0
+        if [[ -n "$service" ]]; then
+            services=("$service")
+        fi
+        log_debug "Main repo root, synthesized context for branch: $branch"
     else
         # Not in a worktree - first positional is branch, rest could be services
         if [[ ${#positionals[@]} -gt 0 ]]; then
@@ -102,8 +115,8 @@ cmd_start() {
     project=$(require_project "$project")
     load_project_config "$project"
 
-    # Verify worktree exists
-    if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
+    # Verify worktree exists (skipped at the main repo root — it is the checkout itself)
+    if [[ "$is_main_root" -ne 1 ]] && ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
         die "Worktree not found for branch: $branch"
     fi
 

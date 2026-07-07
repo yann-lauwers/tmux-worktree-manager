@@ -15,6 +15,7 @@ cmd_create() {
     local from_branch=""
     local no_setup=0
     local skip_groups=""
+    local db_from=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -44,6 +45,17 @@ cmd_create() {
             --db)
                 no_db=0
                 shift
+                ;;
+            --db-from)
+                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                db_from="$2"
+                shift 2
+                ;;
+            --stack-on)
+                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                from_branch="$2"
+                db_from="$2"
+                shift 2
                 ;;
             -h|--help)
                 show_create_help
@@ -118,6 +130,15 @@ cmd_create() {
     log_info "Project: ${BOLD}$project${NC}  Base: ${BOLD}$base_branch${NC}"
     echo ""
 
+    # --db-from / --stack-on: borrow another branch's ephemeral DB instead of spinning
+    # our own. The project's borrow-shared-db setup step reads WT_DB_FROM and points this
+    # worktree's env at the base branch's Postgres; --no-db skips spin/dump/seed.
+    if [[ -n "$db_from" ]]; then
+        export WT_DB_FROM="$db_from"
+        no_db=1
+        log_info "Stacked worktree — sharing ephemeral DB from '$db_from'"
+    fi
+
     # Check if project has db-grouped setup steps — prompt for ephemeral DB
     local has_db_steps=false
     local config_file
@@ -180,6 +201,8 @@ Options:
   --skip-groups <g>  Skip setup groups (comma-separated)
   --no-db            Skip ephemeral DB setup
   --db               Force ephemeral DB setup (no prompt)
+  --db-from <branch> Share <branch>'s ephemeral DB instead of spinning one (implies --no-db)
+  --stack-on <branch> Stacked PR shortcut: --from <branch> + --db-from <branch>
   -p, --project      Explicit project name
   -h, --help         Show this help message
 
@@ -189,6 +212,7 @@ Examples:
   wt create
   wt create fix/my-bug --from staging
   wt create NEX-1500 -p nexus --no-db
+  wt create NEX-2544 --stack-on nex-2543/foo   # stack: branch + DB from nex-2543/foo
 
 Linear API key lookup (first found wins):
   1. $WT_LINEAR_API_KEY env var

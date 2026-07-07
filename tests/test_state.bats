@@ -8,6 +8,7 @@ setup() {
     load_lib "utils"
     load_lib "config"
     load_lib "port"
+    load_lib "worktree"
     load_lib "state"
 }
 

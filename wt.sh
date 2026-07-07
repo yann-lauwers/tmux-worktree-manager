@@ -27,6 +27,7 @@ source "${WT_SCRIPT_DIR}/lib/setup.sh"
 source "${WT_SCRIPT_DIR}/lib/tmux.sh"
 source "${WT_SCRIPT_DIR}/lib/service.sh"
 source "${WT_SCRIPT_DIR}/lib/smart.sh"
+source "${WT_SCRIPT_DIR}/lib/worktree-list.sh"
 
 # Source command modules
 source "${WT_SCRIPT_DIR}/commands/create.sh"
@@ -48,8 +49,7 @@ source "${WT_SCRIPT_DIR}/commands/doctor.sh"
 source "${WT_SCRIPT_DIR}/commands/open.sh"
 source "${WT_SCRIPT_DIR}/commands/smartlist.sh"
 source "${WT_SCRIPT_DIR}/commands/db.sh"
-# smartdelete.sh merged into delete.sh — rm is now an alias for delete
-source "${WT_SCRIPT_DIR}/commands/prune.sh"
+# smartdelete.sh + prune.sh merged into delete.sh — `wt rm` is the single delete surface
 source "${WT_SCRIPT_DIR}/commands/code.sh"
 source "${WT_SCRIPT_DIR}/commands/pr.sh"
 
@@ -61,8 +61,8 @@ ${BOLD}COMMANDS${NC}
     ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
     ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
     ${CYAN}ls${NC}              List all worktrees across projects (PR status)
-    ${CYAN}rm${NC}              Smart delete (fzf multi-select)
-    ${CYAN}prune${NC}           Delete worktrees whose PRs have been merged
+    ${CYAN}rm${NC}              Delete worktrees (fzf multi-select; --merged for merged/closed only)
+    ${CYAN}prune${NC}           Delete merged/closed-PR worktrees (alias for rm --merged)
     ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
     ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
     ${CYAN}start, up${NC}       Start services in a worktree
@@ -83,8 +83,8 @@ ${BOLD}SMART COMMANDS${NC}
     ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
     ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
     ${CYAN}ls${NC}              List all worktrees across projects (PR status)
-    ${CYAN}rm${NC}              Smart delete (fzf multi-select)
-    ${CYAN}prune${NC}           Delete worktrees whose PRs have been merged
+    ${CYAN}rm${NC}              Delete worktrees (fzf multi-select; --merged for merged/closed only)
+    ${CYAN}prune${NC}           Delete merged/closed-PR worktrees (alias for rm --merged)
     ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
     ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
 
@@ -96,7 +96,8 @@ ${BOLD}SMART COMMANDS${NC}
         wt open                              # fzf picker
         wt ls                                # all projects, PR status
         wt rm                                # fzf multi-select delete
-        wt prune -y                          # auto-confirm merged cleanup
+        wt prune                             # picker over merged/closed only (= rm --merged)
+        wt prune -y                          # auto-delete all merged/closed
         wt pr                                # open PR in browser
         wt pr conflicts                      # check merge conflicts
 
@@ -246,7 +247,8 @@ main() {
             WT_CMD_NAME="rm" cmd_delete "$@"
             ;;
         prune)
-            cmd_prune "$@"
+            # Thin alias: the merged/closed-only door into the unified `wt rm` picker.
+            WT_CMD_NAME="prune" cmd_delete --merged "$@"
             ;;
         code|cursor)
             cmd_code "$@"

@@ -203,21 +203,23 @@ cmd_ports() {
     echo ""
 
     # DB connection string (if configured)
+    local wt_path
+    wt_path=$(get_worktree_path "$project" "$branch" 2>/dev/null)
     local db_url
-    if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE"); then
+    if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE" "$wt_path"); then
         echo -e "${BOLD}Database${NC}"
         printf "%s\n" "$(printf '%.0s-' {1..60})"
         local db_user db_host db_port db_name
         db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+        db_user="${db_user%%:*}"
         db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
         db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
         db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
         print_kv "Host" "$db_host"
         print_kv "Port" "$db_port"
         print_kv "User" "$db_user"
-        print_kv "Password" "(none)"
         print_kv "Database" "$db_name"
-        print_kv "Connection string" "$db_url"
+        print_kv "Connection string" "$(redact_db_url "$db_url")"
         echo ""
     fi
 }

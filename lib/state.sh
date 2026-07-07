@@ -368,18 +368,23 @@ set_session_state() {
 }
 
 # Get worktree path from state
+# Main-repo-root context (cmd_start/cmd_stop) sets WT_ROOT_WORKTREE_PATH to the
+# repo root, which has no state entry — honor it before the state lookup.
 get_worktree_path() {
     local project="$1"
     local branch="$2"
 
+    [[ -n "${WT_ROOT_WORKTREE_PATH:-}" ]] && { echo "$WT_ROOT_WORKTREE_PATH"; return 0; }
     get_worktree_state "$project" "$branch" "path"
 }
 
 # Get worktree slot from state
+# Main-repo-root context sets WT_ROOT_SLOT (0) — the root holds no slot in state.
 get_worktree_slot() {
     local project="$1"
     local branch="$2"
 
+    [[ -n "${WT_ROOT_SLOT:-}" ]] && { echo "$WT_ROOT_SLOT"; return 0; }
     get_worktree_state "$project" "$branch" "slot"
 }
 

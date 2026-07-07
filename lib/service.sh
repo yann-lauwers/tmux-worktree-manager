@@ -223,6 +223,11 @@ start_services_direct() {
     # Trap Ctrl+C to kill all background services
     _direct_cleanup() {
         echo ""
+        # Teardown is best-effort: Ctrl-C already SIGINT'd the foreground group, so
+        # many of these kills hit already-dead pids and return non-zero. Under the
+        # CLI's `set -e` that aborts the trap before the summary — disable it here so
+        # every service is reaped and the per-service enumeration below always runs.
+        set +e
         log_info "Stopping all services..."
         # Kill the whole process group of each tracked pipe PID — $! is the sed PID,
         # but the node server lives in the subshell's group; PGID kill reaches it.
@@ -254,16 +259,39 @@ start_services_direct() {
             fi
         done
         wait 2>/dev/null
-        # Update state
-        for name in "${svc_names[@]}"; do
-            update_service_status "$project" "$branch" "$name" "stopped" 2>/dev/null
+        # Enumerate each tracked service and confirm its port is actually free,
+        # so it's clear every one stopped (not just a blanket "all stopped").
+        # svc_names / svc_ports are index-aligned (pushed together at start).
+        local _all_clear=1 _i _name _port
+        for _i in "${!svc_names[@]}"; do
+            _name="${svc_names[$_i]}"
+            _port="${svc_ports[$_i]:-}"
+            update_service_status "$project" "$branch" "$_name" "stopped" 2>/dev/null
+            if [[ -n "$_port" ]] && [[ -n "$(lsof -iTCP:"$_port" -sTCP:LISTEN -t 2>/dev/null)" ]]; then
+                log_warn "  ✗ $_name still listening on port $_port"
+                _all_clear=0
+            else
+                log_success "  ✓ stopped $_name${_port:+ (port $_port)}"
+            fi
         done
-        log_success "All services stopped"
+        if [[ "$_all_clear" -eq 1 ]]; then
+            log_success "All ${#svc_names[@]} service(s) stopped"
+        else
+            log_warn "Some services may still be running — see ports above"
+        fi
         trap - INT TERM
     }
     trap _direct_cleanup INT TERM
 
     local failed=0
+
+    # Job control ON for the launches so each backgrounded service pipeline gets
+    # its OWN process group. Without it, `&` jobs share wt's group, and the trap's
+    # `kill -TERM -- "-$pgid"` would nuke wt itself — aborting teardown before the
+    # summary. Restored after the loop (existing jobs keep their groups). Scripts
+    # are non-interactive, so this emits no "[1] pid" job-control chatter.
+    local _had_monitor=0; [[ -o monitor ]] && _had_monitor=1
+    set -m
 
     while read -r name; do
         [[ -z "$name" ]] && continue
@@ -329,6 +357,8 @@ start_services_direct() {
 
         update_service_status "$project" "$branch" "$name" "running" "" "$port"
     done <<< "$service_names"
+
+    [[ "$_had_monitor" -eq 0 ]] && set +m
 
     if [[ ${#pids[@]} -eq 0 ]]; then
         log_error "No services were started"

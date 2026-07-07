@@ -62,7 +62,7 @@ _run_with_spinner() {
     local frame=0
     while kill -0 "$pid" 2>/dev/null; do
         _draw_progress "$current" "$total" "$label" "running" "$frame"
-        ((frame++))
+        frame=$((frame + 1))
         sleep 0.08
     done
 
@@ -101,7 +101,7 @@ execute_setup() {
             local grp
             grp=$(get_setup_step "$config_file" "$i" "group")
             if [[ -z "$grp" || "$grp" == "null" ]] || ! _group_in_list "$grp" "$skip_groups"; then
-                ((effective_count++))
+                effective_count=$((effective_count + 1))
             fi
         done
     else
@@ -158,7 +158,7 @@ execute_setup() {
             fi
         fi
 
-        ((progress_idx++))
+        progress_idx=$((progress_idx + 1))
 
         # Skip if filter provided and doesn't match
         if [[ -n "$step_filter" ]] && [[ "$step_name" != "$step_filter" ]]; then

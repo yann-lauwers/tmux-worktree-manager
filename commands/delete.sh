@@ -13,12 +13,22 @@ cmd_delete() {
     local force=0
     local keep_branch=0
     local project=""
+    local merged_only=0
+    local auto_yes=0
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -f|--force)
                 force=1
+                shift
+                ;;
+            -m|--merged)
+                merged_only=1
+                shift
+                ;;
+            -y|--yes)
+                auto_yes=1
                 shift
                 ;;
             --keep-branch)
@@ -48,9 +58,9 @@ cmd_delete() {
         esac
     done
 
-    # No branch given → interactive fzf picker
+    # No branch given → interactive picker (over all worktrees, or merged/closed with --merged)
     if [[ -z "$branch" ]]; then
-        _delete_interactive "$project"
+        _delete_interactive "$project" "$merged_only" "$auto_yes"
         return
     fi
 
@@ -116,6 +126,13 @@ cmd_delete() {
     fi
     export WORKTREE_PATH="$wt_path"
     export BRANCH_NAME="$branch"
+    # Export this worktree's port vars so delete hooks (e.g. tunnel teardown) can
+    # resolve PORT_* like start/stop do. Skip if the slot is already gone.
+    local del_slot
+    del_slot=$(get_worktree_slot "$project" "$state_key")
+    if [[ -n "$del_slot" ]]; then
+        export_port_vars "$state_key" "$PROJECT_CONFIG_FILE" "$del_slot" "$project"
+    fi
     run_hook "$PROJECT_CONFIG_FILE" "pre_delete"
 
     # Remove worktree (only if it exists on disk)
@@ -149,101 +166,66 @@ cmd_delete() {
     fi
 }
 
-# Interactive fzf multi-select picker
+# Interactive multi-select picker over all worktrees (or merged/closed only with merged_only=1).
+# auto_yes=1 skips the picker and deletes every matching worktree non-interactively.
 _delete_interactive() {
     local filter="${1:-}"
+    local merged_only="${2:-0}"
+    local auto_yes="${3:-0}"
 
-    if ! command -v fzf &>/dev/null; then
-        die "fzf is required for interactive delete. Install: brew install fzf"
-    fi
+    # Shared builder: TSV rows  project \t branch \t path \t pr_label \t dirty
+    local rows
+    rows=$(build_worktree_rows "$filter" "$merged_only")
 
-    # Build worktree list with PR status
-    local fzf_input=""
-
-    for config in "$WT_PROJECTS_DIR"/*.yaml; do
-        [[ -f "$config" ]] || continue
-        local project
-        project=$(basename "$config" .yaml)
-        [[ -n "$filter" && "$project" != "$filter" ]] && continue
-
-        local repo_root
-        repo_root=$(yq -r '.repo_path // ""' "$config" | sed "s|^~|$HOME|")
-        [[ -d "$repo_root" ]] || continue
-
-        local repo_nwo
-        repo_nwo=$(smart_get_repo_nwo "$repo_root")
-
-        # One batched query per repo (newest-first), looked up locally per branch —
-        # replaces one `gh pr list` network call per worktree. TSV: branch \t number \t state \t isDraft.
-        local pr_map=""
-        if [[ -n "$repo_nwo" ]]; then
-            pr_map=$(gh pr list --repo "$repo_nwo" --state all --limit 500 \
-                --json number,state,isDraft,headRefName \
-                --jq '.[] | [.headRefName, (.number|tostring), .state, (.isDraft|tostring)] | @tsv' 2>/dev/null || true)
+    if [[ -z "$rows" ]]; then
+        if [[ "$merged_only" == "1" ]]; then
+            echo "No merged/closed worktrees found. Nothing to delete."
+        else
+            echo "No worktrees found."
         fi
-
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local branch="${line%%|*}"
-            local path="${line#*|}"
-
-            # PR status label — first match = newest PR (gh returns newest-first).
-            local pr_label=""
-            if [[ -n "$pr_map" ]]; then
-                local pr_line
-                pr_line=$(printf '%s\n' "$pr_map" | awk -F'\t' -v b="$branch" '$1==b {print; exit}')
-                if [[ -n "$pr_line" ]]; then
-                    local number state draft
-                    number=$(printf '%s' "$pr_line" | cut -f2)
-                    state=$(printf '%s' "$pr_line" | cut -f3)
-                    draft=$(printf '%s' "$pr_line" | cut -f4)
-                    if [[ "$state" == "MERGED" ]]; then
-                        pr_label="#${number} merged"
-                    elif [[ "$draft" == "true" ]]; then
-                        pr_label="#${number} draft"
-                    elif [[ "$state" == "OPEN" ]]; then
-                        pr_label="#${number} open"
-                    elif [[ "$state" == "CLOSED" ]]; then
-                        pr_label="#${number} closed"
-                    fi
-                fi
-            fi
-
-            local display="${project}  ${branch}"
-            [[ -n "$pr_label" ]] && display="${display}  ${pr_label}"
-            fzf_input+="${display}|${project}|${branch}|${path}"$'\n'
-        done < <(
-            git -C "$repo_root" worktree list --porcelain 2>/dev/null | {
-                local wt_path=""
-                while IFS= read -r l; do
-                    if [[ "$l" =~ ^worktree\ (.+) ]]; then
-                        wt_path="${BASH_REMATCH[1]}"
-                    elif [[ "$l" =~ ^branch\ refs/heads/(.+) ]]; then
-                        [[ "$wt_path" == "$repo_root" ]] && continue
-                        echo "${BASH_REMATCH[1]}|${wt_path}"
-                    fi
-                done
-            }
-        )
-    done
-
-    if [[ -z "$fzf_input" ]]; then
-        echo "No worktrees found."
         return 0
     fi
 
-    local selected=()
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        selected+=("$line")
-    done < <(
-        echo -n "$fzf_input" | fzf --multi --ansi \
-            --header "TAB select | CTRL-A all | ENTER confirm | ESC cancel" \
-            --delimiter '|' --with-nth 1 \
-            --preview-window hidden \
-            --bind 'ctrl-a:toggle-all' \
-            --height "~20" || true
-    )
+    local fzf_input=""
+    local -a all_entries=()
+    while IFS=$'\t' read -r project branch path pr_label dirty; do
+        [[ -z "$branch" ]] && continue
+        local display="${project}  ${branch}"
+        [[ -n "$pr_label" ]] && display="${display}  ${pr_label}"
+        [[ "${dirty:-0}" -gt 0 ]] && display="${display}  ⚠${dirty} uncommitted"
+        all_entries+=("${project}|${branch}|${path}")
+        fzf_input+="${display}|${project}|${branch}|${path}"$'\n'
+    done <<< "$rows"
+
+    local -a selected=()
+    if [[ "$auto_yes" == "1" ]]; then
+        selected=("${all_entries[@]}")
+    elif ! command -v fzf &>/dev/null; then
+        # No fzf — print the list and confirm-all
+        echo -e "${BOLD}Worktrees:${NC}"
+        while IFS='|' read -r d _rest; do
+            [[ -z "$d" ]] && continue
+            echo "  $d"
+        done <<< "$fzf_input"
+        echo ""
+        read -r -p "Delete all? [y/N] " response
+        [[ "$response" =~ ^[Yy]$ ]] && selected=("${all_entries[@]}")
+    else
+        local header="TAB select | CTRL-A all | ENTER confirm | ESC cancel"
+        [[ "$merged_only" == "1" ]] && header="Merged/closed only — ${header}"
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            # Drop the display field, keep project|branch|path
+            selected+=("${line#*|}")
+        done < <(
+            printf '%s' "$fzf_input" | fzf --multi --ansi \
+                --header "$header" \
+                --delimiter '|' --with-nth 1 \
+                --preview-window hidden \
+                --bind 'ctrl-a:toggle-all' \
+                --height "~20" || true
+        )
+    fi
 
     if [[ ${#selected[@]} -eq 0 ]]; then
         echo "Nothing selected."
@@ -251,24 +233,47 @@ _delete_interactive() {
     fi
 
     echo ""
-    local deleted=0
-    for entry in "${selected[@]}"; do
-        local _display project branch path
-        IFS='|' read -r _display project branch path <<< "$entry"
-        echo -e "Deleting ${CYAN}${project}${NC} / ${branch}..."
-        if ! cmd_delete "$branch" -p "$project" -f 2>/dev/null; then
-            # Fallback: force cleanup if cmd_delete fails
-            git worktree remove "$path" --force 2>/dev/null || true
+    _delete_batch "${selected[@]}"
+}
+
+# Batch-delete the given `project|branch|path` entries with per-item progress.
+_delete_batch() {
+    local -a entries=("$@")
+    local total=${#entries[@]}
+    local deleted=0 failed=0 i=0
+
+    for entry in "${entries[@]}"; do
+        local project branch path
+        IFS='|' read -r project branch path <<< "$entry"
+        i=$((i + 1))
+
+        printf "%b[%d/%d]%b Deleting %b%s%b / %s ... " \
+            "$DIM" "$i" "$total" "$NC" "$CYAN" "$project" "$NC" "$branch"
+
+        # Subshell isolates cmd_delete's `die`/exit so one failure can't abort the batch.
+        if ( cmd_delete "$branch" -p "$project" -f >/dev/null 2>&1 ); then
+            printf "%b✓%b\n" "$GREEN" "$NC"
+            deleted=$((deleted + 1))
+        elif git worktree remove "$path" --force 2>/dev/null; then
             git branch -D "$branch" 2>/dev/null || true
             git worktree prune 2>/dev/null || true
             release_slot "$project" "$branch" 2>/dev/null || true
             delete_worktree_state "$project" "$branch" 2>/dev/null || true
+            printf "%b✓%b %b(fallback cleanup)%b\n" "$GREEN" "$NC" "$DIM" "$NC"
+            deleted=$((deleted + 1))
+        else
+            printf "%b✗ failed%b — try %bwt rm %s -p %s%b\n" \
+                "$RED" "$NC" "$DIM" "$branch" "$project" "$NC"
+            failed=$((failed + 1))
         fi
-        deleted=$((deleted + 1))
     done
 
     echo ""
-    echo -e "${BOLD}Done.${NC} Deleted ${deleted} worktree(s)."
+    if [[ $failed -gt 0 ]]; then
+        echo -e "${BOLD}Done.${NC} Deleted ${GREEN}${deleted}${NC}, ${RED}${failed} failed${NC} (of ${total})."
+    else
+        echo -e "${BOLD}Done.${NC} Deleted ${GREEN}${deleted}${NC} worktree(s)."
+    fi
 }
 
 show_delete_help() {
@@ -276,20 +281,26 @@ show_delete_help() {
     cat << EOF
 Usage: wt ${cmd} [<branch>] [options]
 
-Delete worktrees. Without a branch, opens an interactive fzf picker.
+Delete worktrees. Without a branch, opens an interactive fzf picker over all
+worktrees (merged/closed ones first, dirty worktrees flagged). With --merged the
+picker is limited to worktrees whose PR is merged/closed; add -y to delete them all.
 
 Arguments:
   <branch>          Branch name (omit for interactive picker)
 
 Options:
   -f, --force       Force deletion even with uncommitted changes
+  -m, --merged      Restrict the picker to merged/closed-PR worktrees
+  -y, --yes         Non-interactive: delete every matching worktree (pairs with --merged)
   --keep-branch     Don't delete the git branch
   -p, --project     Project name (auto-detected if not specified)
   -h, --help        Show this help message
 
 Examples:
-  wt ${cmd}                            # interactive fzf picker
+  wt ${cmd}                            # picker over all worktrees
   wt ${cmd} -p nexus                   # picker filtered to one project
+  wt ${cmd} --merged                   # picker over merged/closed only
+  wt ${cmd} --merged -y                # delete all merged/closed (no prompt)
   wt ${cmd} feature/auth               # direct delete
   wt ${cmd} feature/auth --force       # skip confirmation
   wt ${cmd} feature/auth --keep-branch

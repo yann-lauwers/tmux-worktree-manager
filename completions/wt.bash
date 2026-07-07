@@ -87,7 +87,7 @@ _wt_completions() {
             fi
             ;;
         prune)
-            COMPREPLY=($(compgen -W "-p --project -y --yes -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "-y --yes -p --project -h --help" -- "$cur"))
             ;;
         code|cursor|pr)
             if [[ "$cur" == -* ]]; then
@@ -102,7 +102,7 @@ _wt_completions() {
             ;;
         rm)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "-m --merged -y --yes -f --force --keep-branch -p --project -h --help" -- "$cur"))
             else
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
                 COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))

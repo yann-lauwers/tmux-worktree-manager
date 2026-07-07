@@ -57,6 +57,17 @@ cmd_stop() {
             services=("$service")
         fi
         log_debug "In worktree, detected branch: $branch"
+    elif [[ ${#positionals[@]} -eq 0 ]] && detect_main_repo_root; then
+        # Main repo root: resolve the same slot-0 context cmd_start synthesized, so
+        # the port-based kills and post_stop hook target the root's services.
+        branch=$(current_branch)
+        export WT_MAIN_CONTEXT=1
+        export WT_ROOT_WORKTREE_PATH="$(git_root)"
+        export WT_ROOT_SLOT=0
+        if [[ -n "$service" ]]; then
+            services=("$service")
+        fi
+        log_debug "Main repo root, resolved context for branch: $branch"
     else
         # Not in a worktree - first positional is branch, rest could be services
         if [[ ${#positionals[@]} -gt 0 ]]; then
