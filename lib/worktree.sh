@@ -16,15 +16,16 @@ worktrees_dir() {
 }
 
 # Derive a directory name from a branch name.
-# An owner prefix (e.g. yann-lauwers/) is dropped, but the FULL ticket+slug is kept so two
-# branches on the same ticket get distinct dirs (nex-2308-chats-egress vs nex-2308-tools-workflow)
-# instead of colliding on the bare ticket number. Everything else -> full sanitized name.
+# When the branch carries an issue-tracker ID (<letters>-<digits>, e.g. nex-2308), the dir IS
+# that ID alone — owner prefix and trailing slug are dropped
+# (yann-lauwers/nex-2308-chats-egress -> nex-2308). Branches with no tracker ID keep their full
+# sanitized name (chore/lint-sweep -> chore-lint-sweep). Same-ticket collisions (a second branch
+# on one ticket) are disambiguated by worktree_path with a numeric suffix (nex-2308-2).
 worktree_dirname() {
     local branch="$1"
-    # owner/ticket-slug (e.g. yann-lauwers/nex-2308-chats-egress) -> nex-2308-chats-egress
-    if [[ "$branch" =~ ^[a-zA-Z][a-zA-Z-]*/([a-zA-Z]+-[0-9]+.*)$ ]]; then
-        sanitize_branch_name "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
-    # ticket/slug or type/slug (e.g. nex-2547/phase-rename, chore/lint-sweep) -> full sanitized name
+    # Tracker ID = <letters>-<digits> at the start of a path segment (after ^ or /).
+    if [[ "$branch" =~ (^|/)([a-zA-Z]+-[0-9]+)(-|/|$) ]]; then
+        echo "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]'
     else
         sanitize_branch_name "$branch" | tr '[:upper:]' '[:lower:]'
     fi
@@ -58,10 +59,20 @@ worktree_path() {
         return
     fi
 
-    local dirname
+    local dirname base_dir
     dirname=$(worktree_dirname "$branch")
+    base_dir=$(worktrees_dir "$repo_root")
 
-    echo "$(worktrees_dir "$repo_root")/$dirname"
+    # Disambiguate a same-ticket collision: if the ticket-id dir is already taken (by another
+    # branch on the same ticket), append the lowest free numeric suffix — nex-2308, nex-2308-2, …
+    local candidate="$base_dir/$dirname"
+    if [[ -e "$candidate" ]]; then
+        local n=2
+        while [[ -e "$base_dir/${dirname}-${n}" ]]; do n=$((n + 1)); done
+        candidate="$base_dir/${dirname}-${n}"
+    fi
+
+    echo "$candidate"
 }
 
 # Check if a worktree exists for a branch
@@ -220,11 +231,29 @@ remove_worktree() {
     fi
 
     log_info "Removing worktree at: $wt_path"
-    git -C "$repo_root" worktree remove $force_flag "$wt_path"
-
-    if [[ $? -ne 0 ]]; then
-        log_error "Failed to remove worktree. Use --force to force removal."
-        return 1
+    if ! git -C "$repo_root" worktree remove $force_flag "$wt_path"; then
+        # Without --force this is the expected refusal on a dirty tree — surface it.
+        if [[ "$force" != "1" ]]; then
+            log_error "Failed to remove worktree. Use --force to force removal."
+            return 1
+        fi
+        # --force was given yet git aborted mid-unlink: a surviving watcher process
+        # (esbuild/vite/tsc file-watchers aren't port listeners, so the port-based
+        # service stop misses them) re-creates a file under node_modules/.cache while
+        # git is emptying it -> rmdir ENOTEMPTY. That strands an unregistered husk dir
+        # AND skips the branch delete below. Let the writer settle, retry once, then
+        # force the directory removal + prune so a partial teardown never leaves a husk.
+        log_warn "git worktree remove aborted mid-unlink; retrying teardown of $wt_path"
+        sleep 1
+        if [[ -d "$wt_path" ]]; then
+            git -C "$repo_root" worktree remove --force "$wt_path" 2>/dev/null || rm -rf "$wt_path"
+        fi
+        git -C "$repo_root" worktree prune
+        if [[ -d "$wt_path" ]]; then
+            log_error "Failed to remove worktree at: $wt_path"
+            return 1
+        fi
+        log_warn "Worktree force-removed after retry: $wt_path"
     fi
 
     # Optionally delete the branch
