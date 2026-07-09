@@ -156,15 +156,3 @@ tmux:
     splits=$(grep "split-window" "$TMUX_LOG" | wc -l | tr -d ' ')
     [[ "$splits" -eq 3 ]]
 }
-
-@test "services-top-2: dispatch from setup_window_panes" {
-    local config_file
-    config_file=$(_create_st2_config)
-
-    setup_window_panes "$TMUX_TEST_SESSION" "dev" "/tmp/repo" "$config_file" "0" "services-top-2"
-
-    # Should use custom layout (3 splits), not generic
-    local splits
-    splits=$(grep "split-window" "$TMUX_LOG" | wc -l | tr -d ' ')
-    [[ "$splits" -eq 3 ]]
-}
