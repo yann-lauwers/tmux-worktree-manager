@@ -68,8 +68,6 @@ cmd_smartlist() {
 
         echo -e "${BOLD}${CYAN}${project}${NC}  ${DIM}(${#entries[@]} worktrees)${NC}"
 
-        local local_state="$HOME/.local/share/wt/state/${project}.state.yaml"
-
         # Fan out PR-status lookups concurrently — one gh call per worktree, fired in
         # parallel into a temp file each, then collected before rendering. Serial lookups
         # made `wt ls` scale linearly with worktree count (N network round-trips); this
@@ -90,14 +88,14 @@ cmd_smartlist() {
             local branch="${entry%%|*}"
             local path="${entry#*|}"
 
-            # Check if managed by wt-core (has slot)
+            # Check if managed by wt-core (has slot) — via the state.sh accessor,
+            # which sanitizes the branch key (the raw-branch yq lookup missed
+            # every slash-branch, so the badge never showed for them)
             local managed=""
-            if [[ -f "$local_state" ]]; then
-                local slot
-                slot=$(yq -r ".worktrees.\"$branch\".slot // empty" "$local_state" 2>/dev/null || true)
-                if [[ -n "$slot" ]]; then
-                    managed=" ${DIM}[slot $slot]${NC}"
-                fi
+            local slot
+            slot=$(get_worktree_state "$project" "$branch" "slot")
+            if [[ -n "$slot" ]]; then
+                managed=" ${DIM}[slot $slot]${NC}"
             fi
 
             # PR status (precomputed in parallel above; empty file = no PR)
