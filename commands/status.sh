@@ -47,23 +47,15 @@ cmd_status() {
         log_info "Detected worktree branch: $branch"
     fi
 
+    # Clean up stale worktree entries first, so a stale target is still swept even
+    # when its directory is gone (resolve_worktree_context would die before this)
     project=$(require_project "$project")
-    load_project_config "$project"
-
-    # Clean up stale worktree entries
     cleanup_stale_worktrees "$project"
 
-    # Check worktree exists
-    if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
-    fi
-
-    # Get worktree info
-    local wt_path
-    wt_path=$(get_worktree_path "$project" "$branch")
-
-    local slot
-    slot=$(get_worktree_slot "$project" "$branch")
+    # Resolve project + worktree context (project/path/slot into WT_CTX_*)
+    resolve_worktree_context "$branch" "$project"
+    local wt_path="$WT_CTX_PATH"
+    local slot="$WT_CTX_SLOT"
 
     local created_at
     created_at=$(get_worktree_state "$project" "$branch" "created_at")

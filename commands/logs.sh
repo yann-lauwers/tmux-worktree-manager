@@ -74,21 +74,10 @@ cmd_logs() {
         return 1
     fi
 
-    project=$(require_project "$project")
-    load_project_config "$project"
-
-    # Get tmux session and window
-    local tmux_session
-    tmux_session=$(get_tmux_session_name "$PROJECT_CONFIG_FILE")
-    local window_name
-    window_name=$(get_session_name "$project" "$branch")
-
-    if ! session_exists "$tmux_session"; then
-        die "Tmux session does not exist: $tmux_session"
-    fi
-    if ! window_exists "$tmux_session" "$window_name"; then
-        die "Tmux window does not exist: $window_name"
-    fi
+    # Resolve project + tmux session/window (verified to exist)
+    resolve_tmux_context "$branch" "$project"
+    local tmux_session="$WT_CTX_TMUX_SESSION"
+    local window_name="$WT_CTX_TMUX_WINDOW"
 
     if [[ "$show_all" -eq 1 ]]; then
         # Show all panes

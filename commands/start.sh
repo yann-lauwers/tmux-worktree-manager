@@ -86,10 +86,8 @@ cmd_start() {
         # Main repo root: synthesize a slot-0 context for the current HEAD so the
         # root runs the same start_services_direct + hook pipeline as a worktree.
         is_main_root=1
-        branch=$(current_branch)
-        export WT_MAIN_CONTEXT=1
-        export WT_ROOT_WORKTREE_PATH="$(git_root)"
-        export WT_ROOT_SLOT=0
+        synth_main_root_context
+        branch="$WT_CTX_BRANCH"
         if [[ -n "$service" ]]; then
             services=("$service")
         fi

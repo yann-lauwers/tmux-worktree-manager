@@ -46,25 +46,12 @@ cmd_run() {
         return 1
     fi
 
-    project=$(require_project "$project")
-    load_project_config "$project"
-
-    # Verify worktree exists
-    if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
-    fi
-
-    local wt_path
-    wt_path=$(get_worktree_path "$project" "$branch")
-
-    # Get slot and export port variables
-    local slot
-    slot=$(get_worktree_slot "$project" "$branch")
-    export_port_vars "$branch" "$PROJECT_CONFIG_FILE" "$slot"
-    export_env_vars "$PROJECT_CONFIG_FILE"
+    # Resolve project + worktree context, then export ports/env for the step
+    resolve_worktree_context "$branch" "$project"
+    export_worktree_env
 
     # Run the step
-    run_setup_step "$wt_path" "$PROJECT_CONFIG_FILE" "$step_name"
+    run_setup_step "$WT_CTX_PATH" "$PROJECT_CONFIG_FILE" "$step_name"
 }
 
 show_run_help() {

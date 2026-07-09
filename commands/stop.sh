@@ -60,10 +60,8 @@ cmd_stop() {
     elif [[ ${#positionals[@]} -eq 0 ]] && detect_main_repo_root; then
         # Main repo root: resolve the same slot-0 context cmd_start synthesized, so
         # the port-based kills and post_stop hook target the root's services.
-        branch=$(current_branch)
-        export WT_MAIN_CONTEXT=1
-        export WT_ROOT_WORKTREE_PATH="$(git_root)"
-        export WT_ROOT_SLOT=0
+        synth_main_root_context
+        branch="$WT_CTX_BRANCH"
         if [[ -n "$service" ]]; then
             services=("$service")
         fi

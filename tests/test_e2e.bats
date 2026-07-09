@@ -18,6 +18,7 @@ setup() {
     load_lib "port"
     load_lib "state"
     load_lib "worktree"
+    load_lib "context"
     load_lib "setup"
     load_lib "tmux"
     load_lib "service"
