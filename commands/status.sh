@@ -136,11 +136,7 @@ cmd_status() {
         echo "$(printf '%.0s-' {1..50})"
         # Parse components from postgresql://user@host:port/dbname
         local db_user db_host db_port db_name
-        db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
-        db_user="${db_user%%:*}"
-        db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
-        db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
-        db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+        IFS=$'\t' read -r db_user db_host db_port db_name < <(parse_db_url "$db_url")
         print_kv "Host" "$db_host"
         print_kv "Port" "$db_port"
         print_kv "User" "$db_user"

@@ -458,3 +458,21 @@ FOO=bar
     [[ -d "$WT_STATE_DIR" ]]
     [[ -d "$WT_LOG_DIR" ]]
 }
+
+# --- parse_db_url ---
+
+@test "parse_db_url extracts user, host, port, name" {
+    IFS=$'\t' read -r u h p n < <(parse_db_url "postgresql://myuser@localhost:5432/mydb")
+    [[ "$u" == "myuser" ]]
+    [[ "$h" == "localhost" ]]
+    [[ "$p" == "5432" ]]
+    [[ "$n" == "mydb" ]]
+}
+
+@test "parse_db_url drops the password and query string" {
+    IFS=$'\t' read -r u h p n < <(parse_db_url "postgresql://user:secret@db.host:6543/app?sslmode=require")
+    [[ "$u" == "user" ]]
+    [[ "$h" == "db.host" ]]
+    [[ "$p" == "6543" ]]
+    [[ "$n" == "app" ]]
+}

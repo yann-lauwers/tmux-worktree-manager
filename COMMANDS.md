@@ -215,6 +215,7 @@ The command surface, from `wt.sh`'s dispatch. Run `wt <command> --help` for full
 | `run_hook` | Run a named hook command from config if one is defined. |
 | `resolve_db_url` | Resolve the worktree's DB URL from its env file, else the config template. |
 | `redact_db_url` | Mask the password in a postgres URL for display: user:pass@host -> user:****@host. |
+| `parse_db_url` | Parse a postgres URL into its components for display. |
 | `list_projects` | List all configured project names. |
 
 ### `lib/context.sh`

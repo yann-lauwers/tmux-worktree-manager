@@ -428,6 +428,20 @@ redact_db_url() {
     echo "$1" | sed -E 's|(://[^:/@]+):[^@]*@|\1:****@|'
 }
 
+# Parse a postgres URL into its components for display.
+# Args: $1 db_url (postgresql://user[:pass]@host:port/dbname[?params])
+# Out:  tab-separated "user\thost\tport\tname"
+parse_db_url() {
+    local url="$1"
+    local db_user db_host db_port db_name
+    db_user=$(echo "$url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+    db_user="${db_user%%:*}"
+    db_host=$(echo "$url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+    db_port=$(echo "$url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+    db_name=$(echo "$url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+    printf '%s\t%s\t%s\t%s\n' "$db_user" "$db_host" "$db_port" "$db_name"
+}
+
 # List all configured project names.
 # Out:  project names, one per line
 list_projects() {
