@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/init.sh - Initialize project configuration
 
+# Scaffold a wt project config for the current git repo.
+# Args: -n/--name <project>, -f/--force, -h/--help
+# Side: writes the project config file; appends/creates .worktrees/ in .gitignore; dies if not a git repo, name invalid, or config exists without --force
 cmd_init() {
     local project_name=""
     local force=0
@@ -171,6 +174,7 @@ EOF
     echo "     wt create <branch-name>"
 }
 
+# Print `wt init` usage help.
 show_init_help() {
     cat << 'EOF'
 Usage: wt init [options]

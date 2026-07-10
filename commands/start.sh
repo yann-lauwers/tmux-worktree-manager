@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/start.sh - Start services in a worktree
 
+# Start a worktree's services in the current terminal (or the main repo root as slot 0).
+# Args: $@ CLI flags — [branch] [service...], -s/--service, -a/--all, --tmux, --attach, --front/--back, -p/--project
+# Side: exports PORT_*/env + BRANCH_NAME/WORKTREE_PATH; runs pre_start/post_start hooks; starts services (direct or tmux, may create the tmux session); may die
 cmd_start() {
     local branch=""
     local service=""
@@ -192,6 +195,8 @@ cmd_start() {
     fi
 }
 
+# Print the `wt start` usage/help text.
+# Out: usage text
 show_start_help() {
     cat << 'EOF'
 Usage: wt start [options]

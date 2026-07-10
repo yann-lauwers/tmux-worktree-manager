@@ -1,9 +1,9 @@
 #!/bin/bash
 # lib/port.sh - Port hashing and slot management
 
-# Calculate dynamic port from branch name hash
-# Uses cksum for deterministic, portable hashing
-# Accepts optional used_ports string (space-separated) to avoid collisions
+# Calculate a dynamic port by hashing the branch name (cksum: deterministic, portable).
+# Args: $1 branch, $2 port_min (4000), $3 port_max (5000), $4 used_ports (space-separated, optional)
+# Out:  the chosen port; linearly probes past any collision with used_ports
 calculate_dynamic_port() {
     local branch="$1"
     local port_min="${2:-4000}"
@@ -28,10 +28,9 @@ calculate_dynamic_port() {
     echo "$port"
 }
 
-# Calculate reserved port from slot
-# Slot 0: 3000, 3001
-# Slot 1: 3002, 3003
-# Slot 2: 3004, 3005
+# Calculate a slot's reserved port: base + slot*services_per_slot + offset (slot 0 -> 3000/3001, slot 1 -> 3002/3003, …).
+# Args: $1 slot, $2 service_offset, $3 base (3000), $4 services_per_slot (2)
+# Out:  the reserved port; fails (log_error, return 1) if outside 1-65535
 calculate_reserved_port() {
     local slot="$1"
     local service_offset="$2"
@@ -46,8 +45,9 @@ calculate_reserved_port() {
     echo "$port"
 }
 
-# Get all ports for a worktree
-# Returns: SERVICE_NAME:PORT pairs
+# Compute every service port for a worktree — reserved (slot-derived, or .ports.main.<svc> under WT_MAIN_CONTEXT) plus dynamic (hashed, collision-avoided).
+# Args: $1 branch, $2 config_file, $3 slot
+# Out:  one SERVICE_NAME:PORT line per service
 calculate_worktree_ports() {
     local branch="$1"
     local config_file="$2"
@@ -102,9 +102,9 @@ calculate_worktree_ports() {
     done <<< "$dynamic_services"
 }
 
-# Export port environment variables for all services
-# If project is provided, port overrides are applied
-# Optional 5th param: pre-computed port map (SERVICE:PORT lines) to avoid recalculation
+# Export PORT_<SERVICE> env vars for every service (project overrides applied when given).
+# Args: $1 branch, $2 config_file, $3 slot, $4 project ("" = no overrides), $5 cached_ports (pre-computed SERVICE:PORT lines, optional)
+# Side: exports PORT_<SERVICE> (uppercased, dashes->underscores) into the environment
 export_port_vars() {
     local branch="$1"
     local config_file="$2"
@@ -143,8 +143,9 @@ export_port_vars() {
     done <<< "$port_data"
 }
 
-# Get port for a specific service
-# If project is provided, checks for port overrides first
+# Get the port for one service (checks project overrides first when project given).
+# Args: $1 service, $2 branch, $3 config_file, $4 slot, $5 project ("" = no overrides)
+# Out:  the service's port
 get_service_port() {
     local service="$1"
     local branch="$2"
@@ -166,12 +167,14 @@ get_service_port() {
     calculate_worktree_ports "$branch" "$config_file" "$slot" | grep "^$service:" | cut -d: -f2
 }
 
-# Slots file path
+# Print the path to the slot-assignments file.
+# Out:  $WT_STATE_DIR/slots.yaml
 slots_file() {
     echo "$WT_STATE_DIR/slots.yaml"
 }
 
-# Initialize slots file if needed
+# Create the slots file with an empty slots map if it does not already exist.
+# Side: writes $WT_STATE_DIR/slots.yaml when absent
 init_slots_file() {
     local file
     file=$(slots_file)
@@ -185,7 +188,9 @@ EOF
     fi
 }
 
-# Get slot assignment for a worktree
+# Look up the slot already assigned to a worktree.
+# Args: $1 project, $2 branch
+# Out:  the slot number, or empty if none assigned
 get_slot_for_worktree() {
     local project="$1"
     local branch="$2"
@@ -204,9 +209,10 @@ get_slot_for_worktree() {
     yaml_get "$file" ".slots.\"$project\".\"$sanitized\"" ""
 }
 
-# Claim a slot for a worktree (with file locking)
-# Returns the slot number or fails
-# Optional port_base and services_per_slot enable system port availability checks
+# Claim a slot for a worktree under a file lock (idempotent if already assigned).
+# Args: $1 project, $2 branch, $3 max_slots (3), $4 port_base ("" skips system port checks), $5 services_per_slot (2)
+# Out:  the claimed slot number
+# Side: writes slots.yaml under lock (via _claim_slot_locked); returns non-zero if no slot free
 claim_slot() {
     local project="$1"
     local branch="$2"
@@ -221,6 +227,10 @@ claim_slot() {
     with_file_lock "$file" _claim_slot_locked "$project" "$branch" "$max_slots" "$file" "$port_base" "$services_per_slot"
 }
 
+# Find and claim the first free slot for a worktree (called under with_file_lock).
+# Args: $1 project, $2 branch, $3 max_slots, $4 file, $5 port_base ("" skips system port checks), $6 services_per_slot (2)
+# Out:  the claimed slot number; returns non-zero if no slot is free
+# Side: writes slots.yaml (yq -i) when a slot is claimed
 _claim_slot_locked() {
     local project="$1"
     local branch="$2"
@@ -288,7 +298,9 @@ _claim_slot_locked() {
     return 1
 }
 
-# Release a slot (with file locking)
+# Release the slot a worktree holds, under a file lock.
+# Args: $1 project, $2 branch
+# Side: deletes the worktree's slot from slots.yaml under lock (via _release_slot_locked)
 release_slot() {
     local project="$1"
     local branch="$2"
@@ -303,6 +315,9 @@ release_slot() {
     with_file_lock "$file" _release_slot_locked "$project" "$branch" "$file"
 }
 
+# Delete a worktree's slot entry from slots.yaml (called under with_file_lock).
+# Args: $1 project, $2 branch, $3 file
+# Side: writes slots.yaml (yq -i del)
 _release_slot_locked() {
     local project="$1"
     local branch="$2"
@@ -315,7 +330,9 @@ _release_slot_locked() {
     log_debug "Released slot for $project/$branch"
 }
 
-# List all slot assignments for a project
+# List every slot assignment for a project.
+# Args: $1 project
+# Out:  one branch:slot line per assigned worktree
 list_slots() {
     local project="$1"
 
@@ -329,7 +346,9 @@ list_slots() {
     yq -r ".slots.\"$project\" // {} | to_entries | .[] | .key + \":\" + (.value | tostring)" "$file" 2>/dev/null
 }
 
-# Get slot count in use for a project
+# Count how many slots a project currently holds.
+# Args: $1 project
+# Out:  the number of assigned slots (0 if none)
 slots_in_use() {
     local project="$1"
 
@@ -344,13 +363,16 @@ slots_in_use() {
     yq ".slots.\"$project\" // {} | length" "$file" 2>/dev/null || echo "0"
 }
 
-# Check if a specific port is available
+# Report whether a port is free, via exit status.
+# Args: $1 port
 is_port_available() {
     local port="$1"
     ! port_in_use "$port"
 }
 
-# Find an available port in range
+# Find a free port in a range, trying a preferred port first.
+# Args: $1 min, $2 max, $3 preferred (optional), $4 exclude (space-separated, optional)
+# Out:  the first available port; returns non-zero if none free
 find_available_port() {
     local min="$1"
     local max="$2"

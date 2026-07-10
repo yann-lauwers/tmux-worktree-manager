@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/attach.sh - Attach to a worktree's tmux session
 
+# Attach the terminal to a worktree's tmux session, creating the window if it is missing.
+# Args: $@ CLI flags — <branch> (auto-detected inside a worktree), -w/--window, -p/--project
+# Side: may create the tmux session/window; attaches the terminal to it; dies if no worktree exists for the branch
 cmd_attach() {
     local branch=""
     local window=""
@@ -75,6 +78,8 @@ cmd_attach() {
     attach_session "$window_name" "$PROJECT_CONFIG_FILE"
 }
 
+# Print the `wt attach` usage/help text.
+# Out: usage text
 show_attach_help() {
     cat << 'EOF'
 Usage: wt attach <branch> [options]

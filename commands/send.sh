@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/send.sh - Send command to a tmux pane
 
+# Send a command string to a service/pane of a worktree's tmux window.
+# Args: $@ CLI flags — [branch] <service|pane_index> <command...>, -p/--project
+# Side: resolves + verifies the tmux context (dies if the session/window is absent); sends keys to the pane; logs the result
 cmd_send() {
     local branch=""
     local project=""
@@ -84,6 +87,8 @@ cmd_send() {
     log_success "Sent to ${target} (pane $pane_idx): $full_cmd"
 }
 
+# Print the `wt send` usage/help text.
+# Out: usage text
 show_send_help() {
     cat << 'EOF'
 Usage: wt send [branch] <service|pane_index> <command...>

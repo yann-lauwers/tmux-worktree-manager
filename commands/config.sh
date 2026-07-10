@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/config.sh - View and edit configuration
 
+# View, edit, or print the path of a global or project wt config.
+# Args: [project] positional, -e/--edit, -g/--global, -p/--project <name>, --path, -h/--help
+# Side: may init config dirs + write a default global config; opens $EDITOR on --edit; prints config to stdout; dies if a project config is missing
 cmd_config() {
     local edit=0
     local global=0
@@ -114,6 +117,7 @@ EOF
     fi
 }
 
+# Print `wt config` usage help.
 show_config_help() {
     cat << 'EOF'
 Usage: wt config [options] [project]

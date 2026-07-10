@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/status.sh - Show worktree status
 
+# Show a worktree's git state, ports, and DB connection details.
+# Args: $@ (<branch>, --services, -p/--project, -h/--help)
+# Side: prunes stale worktree/service state; resolves context (dies if worktree missing); exports PORT_<service> vars; prints report
 cmd_status() {
     local branch=""
     local show_services=0
@@ -148,6 +151,7 @@ cmd_status() {
     echo ""
 }
 
+# Print the `wt status` usage text.
 show_status_help() {
     cat << 'EOF'
 Usage: wt status <branch> [options]

@@ -1,8 +1,9 @@
 #!/bin/bash
 # commands/ports.sh - Show and manage port assignments for worktrees
 
-# Print port table header
-# Usage: _ports_table_header <title> <check_availability>
+# Print the port-table header row (SERVICE/PORT/OVERRIDE, optional STATUS).
+# Args: $1 title, $2 check_availability (1 = add STATUS column)
+# Out:  header + separator lines printed to stdout
 _ports_table_header() {
     local title="$1"
     local check_availability="$2"
@@ -14,8 +15,9 @@ _ports_table_header() {
     printf "%s\n" "$(printf '%.0s-' {1..60})"
 }
 
-# Print a single port row with override and availability info
-# Usage: _ports_table_row <service> <port> <project> <branch> <check_availability>
+# Print one port row: service, base port, override, and optional availability.
+# Args: $1 service, $2 port, $3 project, $4 branch, $5 check_availability (1 = add STATUS)
+# Out:  formatted port row printed to stdout
 _ports_table_row() {
     local service="$1"
     local port="$2"
@@ -46,6 +48,9 @@ _ports_table_row() {
     echo ""
 }
 
+# Show a worktree's port assignments, overrides, availability, and DB connection.
+# Args: $@ ([branch], set|clear subcommand, -c/--check, -p/--project, -h/--help)
+# Side: routes to set/clear subcommands; loads PROJECT_* config; exports PORT_<service> vars; prints report
 cmd_ports() {
     local subcommand=""
     local branch=""
@@ -224,6 +229,7 @@ cmd_ports() {
     fi
 }
 
+# Print the `wt ports` usage text.
 show_ports_help() {
     cat << 'EOF'
 Usage: wt ports [branch] [options]
@@ -252,7 +258,9 @@ Examples:
 EOF
 }
 
-# Set port override for a service
+# Set a port override for a service in a worktree.
+# Args: $@ (<service> <port> [branch], -p/--project, -h/--help)
+# Side: auto-detects branch from git; writes the override to state via set_port_override; prints confirmation
 cmd_ports_set() {
     local service=""
     local port=""
@@ -336,6 +344,7 @@ cmd_ports_set() {
     log_info "Restart the service to apply: wt stop $service && wt start $service"
 }
 
+# Print the `wt ports set` usage text.
 show_ports_set_help() {
     cat << 'EOF'
 Usage: wt ports set <service> <port> [branch] [options]
@@ -358,7 +367,9 @@ Examples:
 EOF
 }
 
-# Clear port override for a service
+# Clear a service's port override in a worktree.
+# Args: $@ (<service> [branch], -p/--project, -h/--help)
+# Side: auto-detects branch from git; removes the override from state via clear_port_override; prints confirmation
 cmd_ports_clear() {
     local service=""
     local branch=""
@@ -420,6 +431,7 @@ cmd_ports_clear() {
     log_info "Restart the service to use default port: wt stop $service && wt start $service"
 }
 
+# Print the `wt ports clear` usage text.
 show_ports_clear_help() {
     cat << 'EOF'
 Usage: wt ports clear <service> [branch] [options]

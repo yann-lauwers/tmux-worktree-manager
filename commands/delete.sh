@@ -8,6 +8,9 @@
 #   wt delete <branch> --force       # skip confirmation
 #   wt rm ...                        # alias for delete
 
+# Parse `wt delete` flags and delete one worktree (or route to the interactive picker), tearing down services, tmux, slot, state, and branch.
+# Args: $@ delete flags + optional branch (-f, -m, -y, --keep-branch, -p)
+# Side: stops services; kills the tmux window; runs pre/post_delete hooks; removes the worktree + branch; releases the slot; deletes state; exports WORKTREE_PATH/BRANCH_NAME/PORT_*; dies on failure
 cmd_delete() {
     local branch=""
     local force=0
@@ -166,8 +169,9 @@ cmd_delete() {
     fi
 }
 
-# Interactive multi-select picker over all worktrees (or merged/closed only with merged_only=1).
-# auto_yes=1 skips the picker and deletes every matching worktree non-interactively.
+# Show an fzf multi-select picker over worktrees (or merged/closed only) and batch-delete the chosen ones.
+# Args: $1 project filter ("" = all), $2 merged_only (0/1), $3 auto_yes (0/1 — skip picker, select every match)
+# Side: reads /dev/tty via fzf / read prompt; delegates to _delete_batch, which deletes the selected worktrees
 _delete_interactive() {
     local filter="${1:-}"
     local merged_only="${2:-0}"
@@ -236,7 +240,9 @@ _delete_interactive() {
     _delete_batch "${selected[@]}"
 }
 
-# Batch-delete the given `project|branch|path` entries with per-item progress.
+# Batch-delete the given `project|branch|path` entries with per-item progress, falling back to raw git cleanup on failure.
+# Args: $@ entries, each a "project|branch|path" string
+# Side: calls cmd_delete per entry; on failure runs git worktree remove/prune + git branch -D + release_slot + delete_worktree_state; prints progress + a final tally
 _delete_batch() {
     local -a entries=("$@")
     local total=${#entries[@]}
@@ -276,6 +282,7 @@ _delete_batch() {
     fi
 }
 
+# Print the `wt delete` usage/help text to stdout (verb from $WT_CMD_NAME).
 show_delete_help() {
     local cmd="${WT_CMD_NAME:-delete}"
     cat << EOF

@@ -1,6 +1,10 @@
 #!/bin/bash
 # commands/logs.sh - Capture tmux pane output
 
+# Capture and print recent tmux pane output for a worktree (default pane 0, a named target, or all panes).
+# Args: $@ CLI flags — [branch] [service|pane_index], --lines/-n N, --all/-a, -p/--project
+# Out: captured pane output
+# Side: resolves + verifies the tmux context (dies if the session/window is absent)
 cmd_logs() {
     local branch=""
     local project=""
@@ -118,6 +122,8 @@ cmd_logs() {
     fi
 }
 
+# Print the `wt logs` usage/help text.
+# Out: usage text
 show_logs_help() {
     cat << 'EOF'
 Usage: wt logs [branch] [service|pane_index] [options]

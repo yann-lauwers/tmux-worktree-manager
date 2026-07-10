@@ -4,8 +4,10 @@
 # Default worktree directory inside repo
 WT_DIR_NAME=".worktrees"
 
-# Get worktrees directory path
+# Get the worktrees container directory.
 # Uses PROJECT_WORKTREE_DIR (from project config) when set, otherwise falls back to $repo/.worktrees
+# Args: $1 repo root (opt; defaults to git_root)
+# Out:  worktrees directory path
 worktrees_dir() {
     local repo_root="${1:-$(git_root)}"
     if [[ -n "${PROJECT_WORKTREE_DIR:-}" ]]; then
@@ -21,6 +23,8 @@ worktrees_dir() {
 # (yann-lauwers/nex-2308-chats-egress -> nex-2308). Branches with no tracker ID keep their full
 # sanitized name (chore/lint-sweep -> chore-lint-sweep). Same-ticket collisions (a second branch
 # on one ticket) are disambiguated by worktree_path with a numeric suffix (nex-2308-2).
+# Args: $1 branch
+# Out:  worktree directory name
 worktree_dirname() {
     local branch="$1"
     # Tracker ID = <letters>-<digits> at the start of a path segment (after ^ or /).
@@ -35,6 +39,8 @@ worktree_dirname() {
 # A branch renamed after its worktree was created no longer matches the dirname derived from
 # the branch string; git still records which directory holds the branch. The main worktree is
 # skipped so a branch checked out in the primary repo never resolves to the repo root.
+# Args: $1 branch, $2 repo root (opt; defaults to git_root)
+# Out:  worktree path from git's mapping, or empty
 worktree_path_for_branch() {
     local branch="$1"
     local repo_root="${2:-$(git_root)}"
@@ -48,6 +54,8 @@ worktree_path_for_branch() {
 
 # Get worktree path for a branch. Prefers git's real mapping; falls back to the path derived
 # from the branch name when no live worktree holds the branch (e.g. during create).
+# Args: $1 branch, $2 repo root (opt; defaults to git_root)
+# Out:  worktree path (existing, or the next free candidate)
 worktree_path() {
     local branch="$1"
     local repo_root="${2:-$(git_root)}"
@@ -75,7 +83,8 @@ worktree_path() {
     echo "$candidate"
 }
 
-# Check if a worktree exists for a branch
+# Test whether a worktree exists for a branch (path check, then state-file fallback).
+# Args: $1 branch, $2 repo root (opt; defaults to git_root)
 worktree_exists() {
     local branch="$1"
     local repo_root="${2:-$(git_root)}"
@@ -95,7 +104,9 @@ worktree_exists() {
     fi
 }
 
-# List all worktrees (excluding the main one)
+# List all worktrees, excluding the main one.
+# Args: $1 repo root (opt; defaults to git_root)
+# Out:  one worktree path per line
 list_worktrees() {
     local repo_root="${1:-$(git_root)}"
 
@@ -110,7 +121,9 @@ list_worktrees() {
     done
 }
 
-# Get branch name for a worktree path
+# Get the branch name checked out at a worktree path.
+# Args: $1 worktree path, $2 repo root (opt; defaults to git_root)
+# Out:  branch name
 get_worktree_branch() {
     local wt_path="$1"
     local repo_root="${2:-$(git_root)}"
@@ -121,10 +134,12 @@ get_worktree_branch() {
     '
 }
 
-# Create a new worktree
+# Create a new worktree for a branch (creating/tracking the branch as needed).
 # Usage: create_worktree <branch> [base_branch] [repo_root]
-# Outputs: the worktree path on success (to stdout)
 # All log messages go to stderr
+# Args: $1 branch, $2 base branch (opt), $3 repo root (opt; defaults to git_root)
+# Out:  worktree path on success
+# Side: git worktree add; appends .worktrees/ to .gitignore; returns 1 on failure
 create_worktree() {
     local branch="$1"
     local base_branch="${2:-}"
@@ -198,8 +213,10 @@ create_worktree() {
     fi
 }
 
-# Remove a worktree
+# Remove a worktree and (unless kept) its branch, with a retry on mid-unlink aborts.
 # Usage: remove_worktree <branch> [force] [keep_branch] [repo_root]
+# Args: $1 branch, $2 force 0|1 (opt), $3 keep_branch 0|1 (opt), $4 repo root (opt)
+# Side: git worktree remove/prune, branch -d/-D, rm -rf on husk; returns 1 on failure
 remove_worktree() {
     local branch="$1"
     local force="${2:-0}"
@@ -276,7 +293,9 @@ remove_worktree() {
     return 0
 }
 
-# Prune stale worktrees
+# Prune stale worktree metadata.
+# Args: $1 repo root (opt; defaults to git_root)
+# Side: git worktree prune
 prune_worktrees() {
     local repo_root="${1:-$(git_root)}"
 
@@ -284,7 +303,9 @@ prune_worktrees() {
     git -C "$repo_root" worktree prune -v
 }
 
-# Execute a command in worktree context
+# Execute a command with cwd set to a branch's worktree.
+# Args: $1 branch, $2.. command + args
+# Side: runs the given command inside the worktree; returns 1 when it's missing
 exec_in_worktree() {
     local branch="$1"
     shift
@@ -311,20 +332,25 @@ exec_in_worktree() {
     (cd "$wt_path" && "$@")
 }
 
-# Count worktrees (excluding main)
+# Count worktrees, excluding the main one.
+# Args: $1 repo root (opt; defaults to git_root)
+# Out:  worktree count
 count_worktrees() {
     local repo_root="${1:-$(git_root)}"
     list_worktrees "$repo_root" | wc -l | tr -d ' '
 }
 
-# Get all branches with worktrees
+# Get all branches that have a worktree (main included).
+# Args: $1 repo root (opt; defaults to git_root)
+# Out:  one branch name per line
 get_worktree_branches() {
     local repo_root="${1:-$(git_root)}"
 
     git -C "$repo_root" worktree list --porcelain | grep "^branch " | sed 's/branch refs\/heads\///'
 }
 
-# Detect if we're inside a worktree and return its branch name
+# Detect whether cwd is inside a worktree and resolve its branch name.
+# Out:  branch name, or empty when not in a worktree
 detect_worktree_branch() {
     local current_dir
     current_dir=$(pwd)
@@ -375,6 +401,7 @@ detect_worktree_branch() {
 # worktree they differ. Also requires the resolved root to map to a configured
 # project (root == that project's repo_path, via detect_project), so the
 # exception stays scoped to known roots.
+# Returns 0 when cwd is the main checkout of a configured project, else 1.
 detect_main_repo_root() {
     is_git_repo 2>/dev/null || return 1
 

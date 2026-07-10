@@ -6,6 +6,9 @@
 #   wt code <branch>          # Open by branch name
 #   wt cursor <branch>        # Alias
 
+# Locate a worktree (from cwd, arg, or fzf picker) and open it in the resolved editor.
+# Args: $1 branch (opt; -h/--help prints usage); auto-detects from cwd or picks via fzf when omitted
+# Side: launches the editor on the worktree path; dies if not in a worktree with no branch/fzf, or no match
 cmd_code() {
     local branch="${1:-}"
     local wt_path=""

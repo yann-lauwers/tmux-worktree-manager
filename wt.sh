@@ -54,7 +54,8 @@ source "${WT_SCRIPT_DIR}/commands/db.sh"
 source "${WT_SCRIPT_DIR}/commands/code.sh"
 source "${WT_SCRIPT_DIR}/commands/pr.sh"
 
-# Show quick usage (wt with no args)
+# Print the short command list shown when `wt` is run with no arguments.
+# Out: usage text
 show_usage() {
     echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
 
@@ -73,7 +74,8 @@ ${BOLD}COMMANDS${NC}
 Run ${CYAN}wt --help${NC} for all commands."
 }
 
-# Show full help (wt --help)
+# Print the full `wt --help` reference (smart + core commands, options, examples).
+# Out: help text
 show_help() {
     echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
 
@@ -154,12 +156,14 @@ For more information on a command, run:
 "
 }
 
-# Show version
+# Print the wt version string.
+# Out: version line
 show_version() {
     echo "wt version $VERSION"
 }
 
-# Check dependencies
+# Verify required dependencies (git, yq, tmux) are installed; warn on missing optional ones (fzf, jq, gh).
+# Side: exits 1 if a required dependency is missing
 check_dependencies() {
     local missing=()
 
@@ -204,7 +208,9 @@ check_dependencies() {
     fi
 }
 
-# Main command dispatcher
+# Dispatch a wt invocation: handle global flags, check deps + init config dirs, route to the command handler.
+# Args: $@ (command name + its arguments)
+# Side: runs the matched cmd_* handler; exits on --help/--version/unknown command
 main() {
     # Handle no arguments
     if [[ $# -eq 0 ]]; then

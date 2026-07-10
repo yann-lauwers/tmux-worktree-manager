@@ -6,6 +6,9 @@
 #   wt ls -q             # Quick (no PR status)
 #   wt ls -p nexus       # One project
 
+# List worktrees across every project, annotating each with live PR status.
+# Args: $@ flags (-p/--project, -q/--quick, -s/--status, -h/--help)
+# Side: spawns parallel gh PR-status lookups into a mktemp temp dir (removed after render); prints listing to stdout
 cmd_smartlist() {
     local filter=""
     local smart_quick=false

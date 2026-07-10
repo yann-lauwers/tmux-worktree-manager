@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/run.sh - Run a specific setup step
 
+# Run a single named setup step in a worktree, with ports/env exported.
+# Args: $@ CLI flags — <branch> <step-name>, -p/--project
+# Side: exports PORT_*/env (via resolve_worktree_context + export_worktree_env); runs the setup step; dies if the project/worktree is missing
 cmd_run() {
     local branch=""
     local step_name=""
@@ -54,6 +57,8 @@ cmd_run() {
     run_setup_step "$WT_CTX_PATH" "$PROJECT_CONFIG_FILE" "$step_name"
 }
 
+# Print the `wt run` usage/help text.
+# Out: usage text
 show_run_help() {
     cat << 'EOF'
 Usage: wt run <branch> <step-name>

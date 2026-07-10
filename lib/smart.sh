@@ -7,14 +7,18 @@ WT_PROJECTS_DIR="$HOME/.config/wt/projects"
 
 # ─── Project detection ───────────────────────────────────────────────────────
 
-# Get repo_path from a project config
+# Get the repo_path for a project from its config.
+# Args: $1 project name
+# Out:  absolute repo root path
 smart_get_repo_root() {
     local project="$1"
     local config="$WT_PROJECTS_DIR/${project}.yaml"
     yq -r '.repo_path // ""' "$config" | sed "s|^~|$HOME|"
 }
 
-# Read a field from project config with optional default
+# Read a field from a project config, falling back to a default.
+# Args: $1 project name, $2 yq field expr, $3 default (opt)
+# Out:  field value, or the default when unset/null
 smart_read_config() {
     local project="$1"
     local field="$2"
@@ -29,7 +33,8 @@ smart_read_config() {
     fi
 }
 
-# Detect project from cwd (works inside worktrees too)
+# Detect the configured project from cwd (works inside worktrees too).
+# Out:  project name; returns 1 when cwd maps to no configured project
 smart_detect_project() {
     local repo_root
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
@@ -68,7 +73,8 @@ smart_detect_project() {
     return 1
 }
 
-# List all configured project names
+# List all configured project names.
+# Out:  one project name per line
 smart_list_projects() {
     for f in "$WT_PROJECTS_DIR"/*.yaml; do
         [[ -f "$f" ]] || continue
@@ -78,7 +84,9 @@ smart_list_projects() {
 
 # ─── Worktree gathering ─────────────────────────────────────────────────────
 
-# Output lines: project|branch|path — skips main worktree
+# Gather worktrees across projects, skipping each repo's main worktree.
+# Args: $1 filter project (opt; "" = all projects)
+# Out:  one "project|branch|path" line per worktree
 smart_gather_worktrees() {
     local filter_project="${1:-}"
     local projects=()
@@ -111,7 +119,9 @@ smart_gather_worktrees() {
     done
 }
 
-# Find worktree by fuzzy match. Returns path or empty.
+# Find a worktree by fuzzy-matching branch or dir name.
+# Args: $1 query, $2 filter project (opt)
+# Out:  first matching worktree path, or empty
 smart_find_worktree() {
     local query="$1"
     local project="${2:-}"
@@ -135,7 +145,10 @@ smart_find_worktree() {
     done
 }
 
-# Interactive fzf picker. Returns path or dies.
+# Interactively pick a worktree (returns directly when only one exists).
+# Args: $1 filter project (opt)
+# Out:  selected worktree path
+# Side: fzf UI / numbered prompt; dies on cancel or when none found
 smart_pick_worktree() {
     local project="${1:-}"
     local entries
@@ -203,14 +216,19 @@ smart_pick_worktree() {
 
 # ─── GitHub / PR helpers ─────────────────────────────────────────────────────
 
-# Get owner/repo string from a repo root directory
+# Get the owner/repo string from a repo's origin remote.
+# Args: $1 repo root
+# Out:  owner/repo, or empty when no origin
 smart_get_repo_nwo() {
     local repo_root="$1"
     git -C "$repo_root" remote get-url origin 2>/dev/null \
         | sed -E 's|.*github\.com[:/]||; s|\.git$||' || true
 }
 
-# PR status badge (colored). Pass branch + owner/repo. Set smart_quick=true to skip.
+# Build a colored PR-status badge for a branch (set smart_quick=true to skip).
+# Args: $1 branch, $2 owner/repo
+# Out:  colored "#<n> <state>" badge with OSC-8 link, or empty
+# Side: network — `gh pr list`
 smart_pr_badge() {
     local branch="$1"
     local repo_nwo="$2"
@@ -254,8 +272,10 @@ smart_pr_badge() {
 
 # ─── User identity ──────────────────────────────────────────────────────────
 
-# Get username for branch naming
+# Get the username for branch naming.
 # Priority: ~/.config/wt/config.yaml -> user | gh api user -> login
+# Out:  username, or empty when neither source resolves
+# Side: network — `gh api user` fallback
 smart_get_user() {
     # 1. Global wt config
     local global_config="$HOME/.config/wt/config.yaml"
@@ -279,7 +299,9 @@ smart_get_user() {
 
 # ─── Linear helpers ──────────────────────────────────────────────────────────
 
-# Slugify a string for branch names
+# Slugify a string for use in branch names (lowercase, hyphenated, ≤50 chars).
+# Args: $1 source string
+# Out:  the slug
 smart_slugify() {
     echo "$1" \
         | tr '[:upper:]' '[:lower:]' \
@@ -289,13 +311,16 @@ smart_slugify() {
         | cut -c1-50
 }
 
-# Is this a Linear-style issue ID? (e.g., NEX-1500, PROJ-123)
+# Test whether a string is a Linear-style issue ID (e.g. NEX-1500, PROJ-123).
+# Args: $1 candidate string
 smart_is_linear_id() {
     [[ "$1" =~ ^[A-Za-z]+-[0-9]+$ ]]
 }
 
-# Find Linear API key from multiple sources
+# Find the Linear API key from the first source that has it.
 # Priority: WT_LINEAR_API_KEY env > pass-get <project>-linear > pass-get linear > ~/.config/wt/config.yaml > me/config.json > ~/.claude/me/config.json
+# Out:  API key, or empty when no source resolves
+# Side: reads pass-get + wt/Claude config files; git rev-parse for project name
 smart_find_linear_key() {
     # 1. Environment variable
     if [[ -n "${WT_LINEAR_API_KEY:-}" ]]; then
@@ -364,7 +389,10 @@ smart_find_linear_key() {
     fi
 }
 
-# Fetch issue title from Linear GraphQL API
+# Fetch an issue title from the Linear GraphQL API.
+# Args: $1 issue ID, $2 API key
+# Out:  issue title
+# Side: network — curl to api.linear.app; dies when the title can't be fetched
 smart_fetch_linear_issue() {
     local issue_id="$1"
     local api_key="$2"
@@ -387,7 +415,8 @@ smart_fetch_linear_issue() {
 
 # ─── Editor / opener helpers ────────────────────────────────────────────────
 
-# Resolve the opener command for wt open (cmux, tmux attach, or just cd)
+# Resolve the opener command for `wt open` (config override, else cmux/tmux/cd).
+# Out:  opener command name
 smart_resolve_opener() {
     # 1. Config override
     local global_config="$HOME/.config/wt/config.yaml"
@@ -410,7 +439,9 @@ smart_resolve_opener() {
     fi
 }
 
-# Resolve editor command (for wt code)
+# Resolve the editor command for `wt code` (config > $VISUAL/$EDITOR > open).
+# Out:  editor command or macOS app binary path
+# Side: dies when the configured editor can't be found
 smart_resolve_editor() {
     local global_config="$HOME/.config/wt/config.yaml"
 
@@ -441,7 +472,9 @@ smart_resolve_editor() {
     echo "$editor_cmd"
 }
 
-# Resolve worktree path from branch name (state files → git worktree list)
+# Resolve a worktree path from a branch name (state files, then git worktree list).
+# Args: $1 branch
+# Out:  worktree path, or empty when none found
 smart_resolve_worktree_path() {
     local branch="$1"
 

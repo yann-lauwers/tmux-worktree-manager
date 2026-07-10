@@ -1,13 +1,17 @@
 #!/bin/bash
 # lib/state.sh - State file management for worktrees and services
 
-# Get state file path for a project
+# Build the state-file path for a project.
+# Args: $1 project
+# Out:  absolute path to the project's state YAML (may not exist yet)
 state_file() {
     local project="$1"
     echo "$WT_STATE_DIR/${project}.state.yaml"
 }
 
-# Initialize state file if needed
+# Create the project's state file with an empty worktrees map if it is absent.
+# Args: $1 project
+# Side: writes a new state YAML when none exists (no-op otherwise)
 init_state_file() {
     local project="$1"
     local file
@@ -21,7 +25,9 @@ EOF
     fi
 }
 
-# Get worktree state
+# Read one field from a worktree's state entry.
+# Args: $1 project, $2 branch, $3 field
+# Out:  the field value ("" if the state file or field is absent)
 get_worktree_state() {
     local project="$1"
     local branch="$2"
@@ -41,7 +47,9 @@ get_worktree_state() {
     yaml_get "$file" ".worktrees.\"$sanitized\".$field" ""
 }
 
-# Set worktree state (with file locking)
+# Set one field on a worktree's state entry.
+# Args: $1 project, $2 branch, $3 field, $4 value
+# Side: delegates the locked write to _set_worktree_state_locked under with_file_lock
 set_worktree_state() {
     local project="$1"
     local branch="$2"
@@ -58,6 +66,9 @@ set_worktree_state() {
     with_file_lock "$file" _set_worktree_state_locked "$sanitized" "$field" "$value" "$file"
 }
 
+# Write a single worktree field to the state file (numeric bare, else strenv-quoted).
+# Args: $1 sanitized branch key, $2 field, $3 value, $4 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _set_worktree_state_locked() {
     local sanitized="$1"
     local field="$2"
@@ -71,7 +82,9 @@ _set_worktree_state_locked() {
     fi
 }
 
-# Delete worktree state (with file locking)
+# Remove a worktree's entire state entry.
+# Args: $1 project, $2 branch
+# Side: delegates the locked delete to _delete_worktree_state_locked under with_file_lock
 delete_worktree_state() {
     local project="$1"
     local branch="$2"
@@ -89,6 +102,9 @@ delete_worktree_state() {
     with_file_lock "$file" _delete_worktree_state_locked "$sanitized" "$file" "$branch"
 }
 
+# Delete the worktree entry from the state file and log it.
+# Args: $1 sanitized branch key, $2 file, $3 branch (for the log line)
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _delete_worktree_state_locked() {
     local sanitized="$1"
     local file="$2"
@@ -98,9 +114,10 @@ _delete_worktree_state_locked() {
     log_debug "Deleted state for worktree: $branch"
 }
 
-# Resolve the state entry key whose stored .path matches a worktree path. The path is stable
-# across branch renames, so it relinks a worktree to its state entry when the key derived from
-# the branch name has drifted.
+# Resolve the state entry key whose stored .path matches a worktree path (stable across renames,
+# so it relinks a worktree to its entry when the branch-derived key has drifted).
+# Args: $1 project, $2 path
+# Out:  the matching worktree state key, or empty if none matches
 state_key_for_path() {
     local project="$1"
     local path="$2"
@@ -114,7 +131,9 @@ state_key_for_path() {
         "$file" 2>/dev/null | head -1
 }
 
-# Create worktree state entry (with file locking)
+# Create a fresh worktree state entry (branch, path, slot, created_at, empty services).
+# Args: $1 project, $2 branch, $3 path, $4 slot
+# Side: delegates the locked create to _create_worktree_state_locked under with_file_lock
 create_worktree_state() {
     local project="$1"
     local branch="$2"
@@ -134,6 +153,9 @@ create_worktree_state() {
     with_file_lock "$file" _create_worktree_state_locked "$sanitized" "$branch" "$path" "$slot" "$ts" "$file"
 }
 
+# Write the new worktree entry's fields to the state file and log it.
+# Args: $1 sanitized branch key, $2 branch, $3 path, $4 slot, $5 ts, $6 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _create_worktree_state_locked() {
     local sanitized="$1"
     local branch="$2"
@@ -153,7 +175,9 @@ _create_worktree_state_locked() {
     log_debug "Created state for worktree: $branch"
 }
 
-# Get service state
+# Read one field from a service's state entry within a worktree.
+# Args: $1 project, $2 branch, $3 service, $4 field
+# Out:  the field value ("" if the state file or field is absent)
 get_service_state() {
     local project="$1"
     local branch="$2"
@@ -174,7 +198,9 @@ get_service_state() {
     yaml_get "$file" ".worktrees.\"$sanitized\".services.\"$service\".$field" ""
 }
 
-# Set service state (with file locking)
+# Set one field on a service's state entry within a worktree.
+# Args: $1 project, $2 branch, $3 service, $4 field, $5 value
+# Side: delegates the locked write to _set_service_state_locked under with_file_lock
 set_service_state() {
     local project="$1"
     local branch="$2"
@@ -192,6 +218,9 @@ set_service_state() {
     with_file_lock "$file" _set_service_state_locked "$sanitized" "$service" "$field" "$value" "$file"
 }
 
+# Write a single service field to the state file (numeric bare, else strenv-quoted).
+# Args: $1 sanitized branch key, $2 service, $3 field, $4 value, $5 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _set_service_state_locked() {
     local sanitized="$1"
     local service="$2"
@@ -206,7 +235,9 @@ _set_service_state_locked() {
     fi
 }
 
-# Update service status (with file locking, batched yq)
+# Update a service's status and optionally its pid/port in one batched write.
+# Args: $1 project, $2 branch, $3 service, $4 status, $5 pid (optional), $6 port (optional)
+# Side: delegates the locked batched write to _update_service_status_locked under with_file_lock
 update_service_status() {
     local project="$1"
     local branch="$2"
@@ -228,6 +259,9 @@ update_service_status() {
     with_file_lock "$file" _update_service_status_locked "$sanitized" "$service" "$status" "$pid" "$port" "$ts" "$file"
 }
 
+# Write the service's status (plus pid, port, and started_at when applicable) in one yq expression.
+# Args: $1 sanitized branch key, $2 service, $3 status, $4 pid, $5 port, $6 ts, $7 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _update_service_status_locked() {
     local sanitized="$1"
     local service="$2"
@@ -258,7 +292,9 @@ _update_service_status_locked() {
     STATUS="$status" TS="$ts" yq -i "$expr" "$file"
 }
 
-# List all worktrees for a project
+# List every worktree entry key stored for a project.
+# Args: $1 project
+# Out:  one sanitized worktree key per line ("" if the state file is absent)
 list_worktree_states() {
     local project="$1"
 
@@ -272,7 +308,9 @@ list_worktree_states() {
     yq -r '.worktrees | keys | .[]' "$file" 2>/dev/null
 }
 
-# Get all service states for a worktree
+# List every service state for a worktree as colon-delimited records.
+# Args: $1 project, $2 branch
+# Out:  one "name:status:port:pid" line per service (unknown/empty fields defaulted)
 list_service_states() {
     local project="$1"
     local branch="$2"
@@ -290,7 +328,8 @@ list_service_states() {
     yq -r ".worktrees.\"$sanitized\".services | to_entries | .[] | \"\(.key):\(.value.status // \"unknown\"):\(.value.port // \"\"):\(.value.pid // \"\")\"" "$file" 2>/dev/null
 }
 
-# Check if service is running (by checking PID)
+# Report whether a service's recorded PID is still alive (via kill -0).
+# Args: $1 project, $2 branch, $3 service
 is_service_running() {
     local project="$1"
     local branch="$2"
@@ -306,7 +345,9 @@ is_service_running() {
     kill -0 "$pid" 2>/dev/null
 }
 
-# Clean up stale service states (processes that died)
+# Mark any service whose recorded PID is dead as stopped in the state file.
+# Args: $1 project, $2 branch
+# Side: writes "stopped" status via update_service_status (locked) for each dead service
 cleanup_stale_services() {
     local project="$1"
     local branch="$2"
@@ -324,7 +365,9 @@ cleanup_stale_services() {
     done < <(list_service_states "$project" "$branch")
 }
 
-# Clean up stale worktree entries (directories that no longer exist)
+# Remove worktree entries whose recorded path no longer exists on disk.
+# Args: $1 project
+# Side: releases the slot and deletes the entry (yq under lock) for each vanished worktree
 cleanup_stale_worktrees() {
     local project="$1"
 
@@ -350,7 +393,9 @@ cleanup_stale_worktrees() {
     done < <(list_worktree_states "$project")
 }
 
-# Get tmux window name for a worktree (short dirname for Linear, sanitized for others)
+# Derive the tmux window name for a worktree (short dirname for Linear, sanitized for others).
+# Args: $1 project, $2 branch
+# Out:  the worktree's window name
 get_session_name() {
     local project="$1"
     local branch="$2"
@@ -358,7 +403,9 @@ get_session_name() {
     worktree_dirname "$branch"
 }
 
-# Store tmux session in state
+# Record a worktree's tmux session name in state.
+# Args: $1 project, $2 branch, $3 session
+# Side: delegates the locked write via set_worktree_state
 set_session_state() {
     local project="$1"
     local branch="$2"
@@ -367,9 +414,11 @@ set_session_state() {
     set_worktree_state "$project" "$branch" "session" "$session"
 }
 
-# Get worktree path from state
+# Resolve a worktree's filesystem path from state (or the root override).
 # Main-repo-root context (cmd_start/cmd_stop) sets WT_ROOT_WORKTREE_PATH to the
 # repo root, which has no state entry — honor it before the state lookup.
+# Args: $1 project, $2 branch
+# Out:  the worktree path ("" if absent)
 get_worktree_path() {
     local project="$1"
     local branch="$2"
@@ -378,8 +427,10 @@ get_worktree_path() {
     get_worktree_state "$project" "$branch" "path"
 }
 
-# Get worktree slot from state
+# Resolve a worktree's slot number from state (or the root override).
 # Main-repo-root context sets WT_ROOT_SLOT (0) — the root holds no slot in state.
+# Args: $1 project, $2 branch
+# Out:  the slot number ("" if absent)
 get_worktree_slot() {
     local project="$1"
     local branch="$2"
@@ -388,7 +439,9 @@ get_worktree_slot() {
     get_worktree_state "$project" "$branch" "slot"
 }
 
-# Set a port override for a service in a worktree (with file locking)
+# Set a port override for a service in a worktree.
+# Args: $1 project, $2 branch, $3 service, $4 port
+# Side: delegates the locked write to _set_port_override_locked under with_file_lock
 set_port_override() {
     local project="$1"
     local branch="$2"
@@ -405,6 +458,9 @@ set_port_override() {
     with_file_lock "$file" _set_port_override_locked "$sanitized" "$service" "$port" "$file"
 }
 
+# Write a service's port override to the state file.
+# Args: $1 sanitized branch key, $2 service, $3 port, $4 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _set_port_override_locked() {
     local sanitized="$1"
     local service="$2"
@@ -415,7 +471,9 @@ _set_port_override_locked() {
     log_debug "Set port override for $service: $port"
 }
 
-# Get a port override for a service in a worktree
+# Read a service's port override for a worktree.
+# Args: $1 project, $2 branch, $3 service
+# Out:  the override port ("" if unset or null)
 get_port_override() {
     local project="$1"
     local branch="$2"
@@ -443,7 +501,9 @@ get_port_override() {
     fi
 }
 
-# Clear a port override for a service (with file locking)
+# Clear a service's port override in a worktree.
+# Args: $1 project, $2 branch, $3 service
+# Side: delegates the locked delete to _clear_port_override_locked under with_file_lock
 clear_port_override() {
     local project="$1"
     local branch="$2"
@@ -462,6 +522,9 @@ clear_port_override() {
     with_file_lock "$file" _clear_port_override_locked "$sanitized" "$service" "$file"
 }
 
+# Delete a service's port override from the state file.
+# Args: $1 sanitized branch key, $2 service, $3 file
+# Side: mutates the state YAML in place via yq (runs under with_file_lock)
 _clear_port_override_locked() {
     local sanitized="$1"
     local service="$2"
@@ -471,7 +534,9 @@ _clear_port_override_locked() {
     log_debug "Cleared port override for $service"
 }
 
-# List all port overrides for a worktree
+# List every port override for a worktree as colon-delimited records.
+# Args: $1 project, $2 branch
+# Out:  one "service:port" line per override ("" if none)
 list_port_overrides() {
     local project="$1"
     local branch="$2"

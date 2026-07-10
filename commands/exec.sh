@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/exec.sh - Execute a command in worktree context
 
+# Execute an arbitrary command in a worktree's directory with ports/env exported.
+# Args: $@ CLI flags — <branch> <command...>, -p/--project, -- (end-of-options)
+# Side: exports PORT_*/env (via resolve_worktree_context + export_worktree_env); cd's into the worktree and runs the command; dies if the project/worktree is missing
 cmd_exec() {
     local branch=""
     local project=""
@@ -65,6 +68,8 @@ cmd_exec() {
     (cd "$WT_CTX_PATH" && "${cmd_args[@]}")
 }
 
+# Print the `wt exec` usage/help text.
+# Out: usage text
 show_exec_help() {
     cat << 'EOF'
 Usage: wt exec <branch> <command...>

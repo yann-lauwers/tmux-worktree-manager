@@ -1,6 +1,10 @@
 #!/bin/bash
 # commands/panes.sh - List panes for a worktree window
 
+# List a worktree window's tmux panes as a table (service/command, active, size).
+# Args: $@ CLI flags — [branch] (auto-detected inside a worktree), -p/--project
+# Out: formatted pane table
+# Side: resolves + verifies the tmux context (dies if the session/window is absent)
 cmd_panes() {
     local branch=""
     local project=""
@@ -101,6 +105,8 @@ cmd_panes() {
     echo ""
 }
 
+# Print the `wt panes` usage/help text.
+# Out: usage text
 show_panes_help() {
     cat << 'EOF'
 Usage: wt panes [branch] [options]

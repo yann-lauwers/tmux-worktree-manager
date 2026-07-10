@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/doctor.sh - Diagnose project health
 
+# Run all diagnostic checks (deps, config, state, tmux, ports) and print a health report.
+# Args: $@ flags (-p/--project, -h/--help)
+# Side: defines the passed/failed/warnings counters the _doctor_* helpers mutate; prints report; returns 1 if any check failed
 cmd_doctor() {
     local project=""
     local passed=0
@@ -288,21 +291,33 @@ $svc_name@$sanitized_branch:$effective_port"
 }
 
 # Helper functions for doctor output
+# Print a PASS line for a passing check.
+# Args: $1 message
+# Side: increments the caller's `passed` counter via dynamic scoping; writes to stdout
 _doctor_pass() {
     echo -e "  ${GREEN}PASS${NC}  $1"
     ((passed++))
 }
 
+# Print a FAIL line for a failing check.
+# Args: $1 message
+# Side: increments the caller's `failed` counter via dynamic scoping; writes to stdout
 _doctor_fail() {
     echo -e "  ${RED}FAIL${NC}  $1"
     ((failed++))
 }
 
+# Print a WARN line for a non-fatal issue.
+# Args: $1 message
+# Side: increments the caller's `warnings` counter via dynamic scoping; writes to stdout
 _doctor_warn() {
     echo -e "  ${YELLOW}WARN${NC}  $1"
     ((warnings++))
 }
 
+# Check a dependency is on PATH; PASS with its version, else FAIL with an install hint.
+# Args: $1 command name, $2 install hint
+# Side: calls _doctor_pass/_doctor_fail (mutates caller counters); writes to stdout
 _doctor_check_cmd() {
     local cmd="$1"
     local install_hint="$2"
@@ -321,6 +336,7 @@ _doctor_check_cmd() {
     fi
 }
 
+# Print the `wt doctor` usage text.
 show_doctor_help() {
     cat << 'EOF'
 Usage: wt doctor [options]

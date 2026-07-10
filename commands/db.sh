@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/db.sh - Database management for worktrees
 
+# Route `wt db <subcommand>` to the matching handler (reset / url / dump / use-remote / detach).
+# Args: $1 subcommand, $@ (remaining) forwarded to the handler
+# Side: dispatches to the handler; prints help + returns 1 on empty/unknown subcommand
 cmd_db() {
     local subcommand="${1:-}"
 
@@ -35,6 +38,9 @@ cmd_db() {
     esac
 }
 
+# Stop, wipe, and recreate a worktree's ephemeral Postgres, then apply schema (prisma migrate deploy, or restore a staging seed dump).
+# Args: $@ flags + optional branch (-p, --fresh, --seed); branch auto-detected from HEAD if omitted
+# Side: prepends PG to PATH; stops + removes the PG data dir; initdb + pg_ctl start; rewrites DATABASE_URL/DIRECT_URL in the worktree env files; may pg_dump/pg_restore the staging seed dump; runs prisma migrate deploy; prints summary
 cmd_db_reset() {
     local branch=""
     local project=""
@@ -233,6 +239,10 @@ cmd_db_reset() {
     echo ""
 }
 
+# Resolve and print a worktree's database connection URL.
+# Args: $@ flags + optional branch (-p); branch auto-detected from HEAD if omitted
+# Out: the DB connection URL (via resolve_db_url)
+# Side: logs an error + returns 1 when the config has no db.url_template
 cmd_db_url() {
     local branch=""
     local project=""
@@ -268,6 +278,9 @@ cmd_db_url() {
     fi
 }
 
+# Refresh the cached staging dump (~/.local/share/nexus/seed.dump) from the main repo's DIRECT_URL.
+# Args: $@ flags (-p)
+# Side: prepends PG to PATH; reads DIRECT_URL from the main repo's prisma-db/.env; pg_dump writes seed.dump; logs error + returns 1 on failure
 cmd_db_dump() {
     local project=""
 
@@ -346,6 +359,7 @@ cmd_db_dump() {
         || { log_error "pg_dump failed"; rm -f "$seed_dump.tmp"; return 1; }
 }
 
+# Print the `wt db` usage/help text to stdout.
 show_db_help() {
     cat << 'EOF'
 Usage: wt db <subcommand> [options]
@@ -372,6 +386,9 @@ Examples:
 EOF
 }
 
+# Detach a worktree from its ephemeral Postgres and repoint its env at the main repo's remote DB.
+# Args: $@ flags + optional branch (-p, -y); branch auto-detected from HEAD if omitted
+# Side: prepends PG to PATH; reads a stdin confirmation prompt unless -y; stops + removes the worktree's ephemeral PG data dir; rewrites DATABASE_URL/DIRECT_URL in the worktree's prisma-db/.env + apps/backend/.env to the main repo's remote values; logs error + returns 1 on failure
 cmd_db_use_remote() {
     local branch=""
     local project=""
@@ -486,7 +503,9 @@ cmd_db_use_remote() {
         log_info "No ephemeral data directory to remove"
     fi
 
-    # sed replacement: escape \ and & in the source line so it's literal
+    # Escape \, &, and | in a string so it's a literal sed replacement.
+    # Args: $1 source string
+    # Out: the escaped string
     _escape_sed_repl() {
         local s="$1"
         s=${s//\\/\\\\}
@@ -524,6 +543,7 @@ cmd_db_use_remote() {
     echo ""
 }
 
+# Print the `wt db use-remote` usage/help text to stdout.
 show_db_use_remote_help() {
     cat << 'EOF'
 Usage: wt db use-remote [branch] [options]
@@ -548,6 +568,7 @@ Aliases: wt db detach
 EOF
 }
 
+# Print the `wt db reset` usage/help text to stdout.
 show_db_reset_help() {
     cat << 'EOF'
 Usage: wt db reset [branch] [options]

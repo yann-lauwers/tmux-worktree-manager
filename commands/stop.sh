@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/stop.sh - Stop services in a worktree
 
+# Stop a worktree's services (or the main repo root's); with no service names, stops all.
+# Args: $@ CLI flags — [branch] [service...], -s/--service, -a/--all, -p/--project
+# Side: exports BRANCH_NAME; stops the services; runs the post_stop hook; may die
 cmd_stop() {
     local branch=""
     local service=""
@@ -103,6 +106,8 @@ cmd_stop() {
     run_hook "$PROJECT_CONFIG_FILE" "post_stop"
 }
 
+# Print the `wt stop` usage/help text.
+# Out: usage text
 show_stop_help() {
     cat << 'EOF'
 Usage: wt stop [service...] [options]

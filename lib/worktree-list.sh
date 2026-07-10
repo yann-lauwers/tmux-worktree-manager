@@ -11,6 +11,10 @@
 # pr_label is "" or "#<n> merged|closed|open|draft". Rows whose PR is merged/closed
 # are emitted first so the picker surfaces the safe-to-delete ones at the top.
 
+# Enumerate every worktree (main excluded), annotated with PR label and dirty count.
+# Args: $1 filter project (opt; "" = all), $2 merged_only 0|1 (opt)
+# Out:  TSV rows "project\tbranch\tpath\tpr_label\tdirty_count", merged/closed first
+# Side: network — one `gh pr list` per repo; `git status` per worktree
 build_worktree_rows() {
     local filter="${1:-}"
     local merged_only="${2:-0}"

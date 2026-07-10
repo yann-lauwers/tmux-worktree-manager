@@ -7,6 +7,9 @@
 #   wt open NEX-1500              # Fuzzy match by Linear ID
 #   wt open -p nexus              # Filter to one project
 
+# Locate a worktree (by query or fzf picker) and open it in cmux/tmux/shell.
+# Args: [query] branch/dir/Linear-ID positional, -p/--project <name>, -a/--all, -h/--help
+# Side: exec's cmux/tmux/$SHELL (replaces process); cd's into the worktree; dies if no match
 cmd_open() {
     local query=""
     local project=""

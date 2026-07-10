@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/list.sh - List worktrees
 
+# List one project's worktrees (table or JSON), pruning stale entries first.
+# Args: $@ flags (-p/--project, -s/--status, --json, -h/--help)
+# Side: loads PROJECT_* config; prunes stale state via cleanup_stale_worktrees; prints to stdout
 cmd_list() {
     local project=""
     local show_status=0
@@ -62,6 +65,9 @@ cmd_list() {
     fi
 }
 
+# Render the human-readable worktree table, optionally with session/dirty status.
+# Args: $1 project, $2 repo_root, $3 show_status (1 = add SESSION/STATUS columns)
+# Out:  worktree table (BRANCH/SLOT/PATH, or BRANCH/SLOT/SESSION/STATUS) + slot summary
 list_worktrees_pretty() {
     local project="$1"
     local repo_root="$2"
@@ -143,6 +149,9 @@ list_worktrees_pretty() {
     echo -e "Total: ${BOLD}$count${NC} worktree(s), ${BOLD}$used_slots${NC}/${BOLD}$total_slots${NC} slots in use"
 }
 
+# Emit the project's worktrees as a JSON array (branch, path, slot, session, active, created).
+# Args: $1 project, $2 repo_root
+# Out: JSON array printed to stdout
 list_worktrees_json() {
     local project="$1"
     local repo_root="$2"
@@ -198,6 +207,8 @@ list_worktrees_json() {
     echo "$worktrees" | jq '.'
 }
 
+# List every configured project with its repo path and worktree count.
+# Out:  project table (name, repo path, worktree count)
 list_all_projects() {
     echo ""
     echo -e "${BOLD}Configured projects:${NC}"
@@ -232,6 +243,7 @@ list_all_projects() {
     echo ""
 }
 
+# Print the `wt list` usage text.
 show_list_help() {
     cat << 'EOF'
 Usage: wt list [options]

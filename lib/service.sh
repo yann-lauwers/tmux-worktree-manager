@@ -8,6 +8,8 @@
 #   config 2 (service 3) -> tmux pane 2 (top-right)
 #   config 3 (claude)    -> tmux pane 3 (bottom-left)
 #   config 4 (orchestr)  -> tmux pane 4 (bottom-right)
+# Args: $1 config_file, $2 service_name
+# Out:  pane index (config order) when the service has a pane; empty otherwise
 find_service_pane_index() {
     local config_file="$1"
     local service_name="$2"
@@ -32,7 +34,9 @@ find_service_pane_index() {
     return 1
 }
 
-# Start a service
+# Start a single service in its tmux pane (or a new window), then health-check it.
+# Args: $1 project, $2 branch, $3 service_name, $4 config_file
+# Side: spawns the service via tmux, exports env, updates service state, may block on health check
 start_service() {
     local project="$1"
     local branch="$2"
@@ -187,8 +191,10 @@ start_service() {
     return 0
 }
 
-# Start services directly in the current terminal (no tmux)
+# Start services directly in the current terminal (no tmux), one background process each.
 # Runs all services as background processes, waits for Ctrl+C to stop them all
+# Args: $1 project, $2 branch, $3 config_file, $4 service_names (newline-separated)
+# Side: spawns background service processes, updates state, traps INT/TERM to kill them, blocks on wait
 start_services_direct() {
     local project="$1"
     local branch="$2"
@@ -381,7 +387,9 @@ start_services_direct() {
     wait
 }
 
-# Stop a service
+# Stop a service via tmux interrupt, then free its port as a fallback.
+# Args: $1 project, $2 branch, $3 service_name, $4 config_file
+# Side: interrupts the tmux pane, kills port listeners, updates service state
 stop_service() {
     local project="$1"
     local branch="$2"
@@ -447,6 +455,8 @@ stop_service() {
 
 # Kill every process listening on $port, escalating SIGTERM → SIGKILL, then
 # verify the port is actually free. Returns non-zero if anything still listens.
+# Args: $1 port, $2 term_wait secs (optional, default 3), $3 kill_wait secs (optional, default 2)
+# Side: sends SIGTERM/SIGKILL to listeners and their process groups; blocks while polling
 kill_port_listeners() {
     local port="$1"
     local term_wait="${2:-3}"
@@ -498,7 +508,9 @@ kill_port_listeners() {
     return 1
 }
 
-# Start all services
+# Start every configured service in sequence.
+# Args: $1 project, $2 branch, $3 config_file
+# Side: starts all services (delegates to start_service)
 start_all_services() {
     local project="$1"
     local branch="$2"
@@ -540,7 +552,9 @@ start_all_services() {
     return 0
 }
 
-# Stop all services
+# Stop every configured service in sequence.
+# Args: $1 project, $2 branch, $3 config_file
+# Side: stops all services (delegates to stop_service)
 stop_all_services() {
     local project="$1"
     local branch="$2"
@@ -575,7 +589,9 @@ stop_all_services() {
     log_success "All services stopped"
 }
 
-# Run health check for a service
+# Poll a service's TCP/HTTP health check until it passes or times out.
+# Args: $1 service_name, $2 port, $3 config_file
+# Side: blocks while polling (nc/curl) until healthy or timeout
 run_health_check() {
     local service_name="$1"
     local port="$2"
@@ -626,7 +642,9 @@ run_health_check() {
     return 0
 }
 
-# Get service status
+# Read a service's status from state.
+# Args: $1 project, $2 branch, $3 service_name
+# Out:  status string (unknown when unset)
 get_service_status() {
     local project="$1"
     local branch="$2"
@@ -638,7 +656,9 @@ get_service_status() {
     echo "${status:-unknown}"
 }
 
-# List all services with their status
+# Print a table of every service with its status and port.
+# Args: $1 project, $2 branch, $3 config_file
+# Out:  formatted SERVICE/STATUS/PORT table
 list_services_status() {
     local project="$1"
     local branch="$2"

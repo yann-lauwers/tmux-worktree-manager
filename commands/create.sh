@@ -8,6 +8,9 @@
 #   wt create fix/my-bug --from staging   # Override base branch
 #   wt create NEX-1500 -p nexus     # Explicit project
 
+# Parse `wt create` flags, resolve the branch name (Linear ID / plain / scratch), and delegate to the core worker.
+# Args: $@ create flags + optional branch/task (--from, --no-db, --db-from, --stack-on, --skip-groups, -p)
+# Side: exports WT_DB_FROM when stacking; reads /dev/tty for the ephemeral-DB prompt; dies on bad input; builds the worktree via _cmd_create_core
 cmd_create() {
     local input=""
     local project=""
@@ -184,6 +187,7 @@ cmd_create() {
     _cmd_create_core "$branch" "$base_branch" "$project" "$no_setup" "$skip_groups"
 }
 
+# Print the `wt create` usage/help text to stdout.
 show_create_help() {
     cat << 'EOF'
 Usage: wt create [<branch-or-task>] [options]
@@ -222,8 +226,9 @@ Linear API key lookup (first found wins):
 EOF
 }
 
-# Internal worker — runs `git worktree add`, slot allocation, setup, tmux session.
-# Called only by cmd_create after argument resolution.
+# Run the worktree-creation pipeline: git worktree add, slot claim, port-conflict resolution, setup steps, tmux session, hooks. Called only by cmd_create after argument resolution.
+# Args: $1 branch, $2 base_branch, $3 project, $4 no_setup (0/1), $5 skip_groups (comma-separated)
+# Side: claims a slot; creates the worktree + state; sets port overrides; exports port/env vars + WORKTREE_PATH/BRANCH_NAME; creates the tmux session; runs pre/post_create hooks; installs an INT/TERM cleanup trap; prints the summary; dies on failure
 _cmd_create_core() {
     local branch="$1"
     local base_branch="$2"
@@ -260,6 +265,8 @@ _cmd_create_core() {
     local _create_cleanup_slot=""
     local _create_cleanup_wt_path=""
 
+    # Roll back partial create state on interrupt: release the slot, delete the state entry, remove the worktree dir.
+    # Side: release_slot, delete_worktree_state, git worktree remove/prune (reads the _create_cleanup_* closure vars)
     _create_cleanup() {
         if [[ -n "$_create_cleanup_slot" ]]; then
             log_warn "Interrupted — cleaning up partial state..."

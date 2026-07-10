@@ -3,6 +3,7 @@
 
 # Check if a group name is in a comma-separated list
 # Usage: _group_in_list "db" "db,test"  → returns 0 (true)
+# Args: $1 group, $2 comma-separated list
 _group_in_list() {
     local group="$1"
     local list="$2"
@@ -19,6 +20,8 @@ _SPINNER_FRAMES='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 # Draw the progress bar (2 lines: step label + bar). Overwrites in place.
 # Usage: _draw_progress <current> <total> <label> <status> [spinner_index]
 #   status: "running", "done", "fail"
+# Args: $1 current, $2 total, $3 label, $4 status (opt), $5 spinner_index (opt)
+# Side: renders the progress bar to STDERR
 _draw_progress() {
     local current="$1" total="$2" label="$3" status="${4:-running}" spin_idx="${5:-0}"
     local bar_width=30
@@ -48,7 +51,8 @@ _draw_progress() {
 
 # Run a command with an animated spinner on the progress bar.
 # Usage: _run_with_spinner <current> <total> <label> <log_file> <dir> <cmd>
-# Sets _RUN_EXIT_CODE on return.
+# Args: $1 current, $2 total, $3 label, $4 log_file, $5 exec_dir, $6.. cmd
+# Side: runs cmd in exec_dir writing output to log_file; sets _RUN_EXIT_CODE; renders spinner to STDERR
 _run_with_spinner() {
     local current="$1" total="$2" label="$3" log_file="$4" exec_dir="$5"
     shift 5
@@ -72,6 +76,7 @@ _run_with_spinner() {
 }
 
 # Finalize progress display — move cursor past the 2-line region
+# Side: writes trailing newlines to STDERR
 _finish_progress() {
     # Move down past label + bar lines
     printf "\n\n" >&2
@@ -80,6 +85,8 @@ _finish_progress() {
 # Execute all setup steps for a worktree
 # Usage: execute_setup <worktree_path> <config_file> [step_filter] [skip_groups]
 #   skip_groups: comma-separated list of groups to skip (e.g. "db,test")
+# Args: $1 worktree_path, $2 config_file, $3 step_filter (opt), $4 skip_groups (opt)
+# Side: runs each step (cd+eval), exports step env vars, writes a temp log file, renders progress to STDERR
 execute_setup() {
     local worktree_path="$1"
     local config_file="$2"
@@ -288,6 +295,8 @@ execute_setup() {
 }
 
 # Run a single setup step by name
+# Args: $1 worktree_path, $2 config_file, $3 step_name
+# Side: exports step env vars and eval's the matching step command
 run_setup_step() {
     local worktree_path="$1"
     local config_file="$2"
@@ -336,6 +345,8 @@ run_setup_step() {
 }
 
 # List all setup steps
+# Args: $1 config_file
+# Out:  formatted numbered list of setup steps
 list_setup_steps() {
     local config_file="$1"
 
@@ -361,6 +372,8 @@ list_setup_steps() {
 }
 
 # Validate setup configuration
+# Args: $1 config_file
+# Out:  count of validation errors (returned as exit status)
 validate_setup_config() {
     local config_file="$1"
 

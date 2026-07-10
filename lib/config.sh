@@ -8,14 +8,16 @@ WT_DATA_DIR="${WT_DATA_DIR:-$HOME/.local/share/wt}"
 WT_STATE_DIR="$WT_DATA_DIR/state"
 WT_LOG_DIR="$WT_DATA_DIR/logs"
 
-# Ensure yq is available
+# Ensure yq is installed, aborting otherwise.
+# Side: dies if yq is not on PATH
 ensure_yq() {
     if ! command_exists yq; then
         die "yq is required but not installed. Install with: brew install yq"
     fi
 }
 
-# Initialize config directories
+# Create the wt config, projects, data, state, and log directories.
+# Side: mkdir -p on WT_{CONFIG,PROJECTS,DATA,STATE,LOG} dirs
 init_config_dirs() {
     ensure_dir "$WT_CONFIG_DIR"
     ensure_dir "$WT_PROJECTS_DIR"
@@ -24,30 +26,36 @@ init_config_dirs() {
     ensure_dir "$WT_LOG_DIR"
 }
 
-# Get global config path
+# Print the global config file path.
+# Out:  path to config.yaml
 global_config_path() {
     echo "$WT_CONFIG_DIR/config.yaml"
 }
 
-# Get project config path
+# Print the config file path for a project.
+# Args: $1 project
+# Out:  path to <project>.yaml
 project_config_path() {
     local project="$1"
     echo "$WT_PROJECTS_DIR/${project}.yaml"
 }
 
-# Check if global config exists
+# Test whether the global config file exists.
 has_global_config() {
     [[ -f "$(global_config_path)" ]]
 }
 
-# Check if project config exists
+# Test whether a project's config file exists.
+# Args: $1 project
 has_project_config() {
     local project="$1"
     [[ -f "$(project_config_path "$project")" ]]
 }
 
-# Load a YAML value with yq
+# Read a single YAML value with yq, falling back to a default.
 # Usage: yaml_get "file.yaml" ".path.to.value"
+# Args: $1 file, $2 yq path, $3 default (opt)
+# Out:  value at path, or the default when missing/null/file absent
 yaml_get() {
     local file="$1"
     local path="$2"
@@ -68,8 +76,10 @@ yaml_get() {
     fi
 }
 
-# Load a YAML array as bash array
+# Read a YAML array, one element per line.
 # Usage: yaml_array "file.yaml" ".path.to.array"
+# Args: $1 file, $2 yq path
+# Out:  array elements, one per line (empty when file absent)
 yaml_array() {
     local file="$1"
     local path="$2"
@@ -81,7 +91,9 @@ yaml_array() {
     yq -r "$path // [] | .[]" "$file" 2>/dev/null
 }
 
-# Get length of YAML array
+# Count the elements of a YAML array.
+# Args: $1 file, $2 yq path
+# Out:  element count (0 when file absent)
 yaml_array_length() {
     local file="$1"
     local path="$2"
@@ -94,8 +106,10 @@ yaml_array_length() {
     yq "$path | length" "$file" 2>/dev/null || echo "0"
 }
 
-# Set a YAML value
+# Write a string YAML value, creating the file if needed.
 # Usage: yaml_set "file.yaml" ".path.to.value" "new_value"
+# Args: $1 file, $2 yq path, $3 value
+# Side: yq -i writes the file (creates it as {} first if absent)
 yaml_set() {
     local file="$1"
     local path="$2"
@@ -109,7 +123,9 @@ yaml_set() {
     yq -i "$path = \"$value\"" "$file"
 }
 
-# Set a YAML value (numeric)
+# Write a numeric YAML value, creating the file if needed.
+# Args: $1 file, $2 yq path, $3 numeric value
+# Side: yq -i writes the file (creates it as {} first if absent)
 yaml_set_num() {
     local file="$1"
     local path="$2"
@@ -122,7 +138,9 @@ yaml_set_num() {
     yq -i "$path = $value" "$file"
 }
 
-# Delete a YAML path
+# Delete a YAML path from a file if the file exists.
+# Args: $1 file, $2 yq path
+# Side: yq -i removes the path from the file
 yaml_delete() {
     local file="$1"
     local path="$2"
@@ -132,9 +150,11 @@ yaml_delete() {
     fi
 }
 
-# Resolve project: use provided value or auto-detect
-# Dies with error if project cannot be determined
+# Return the given project name, or auto-detect it from the cwd.
 # Usage: project=$(require_project "$project" ["custom error message"])
+# Args: $1 project ("" = auto-detect), $2 custom error message (opt)
+# Out:  resolved project name
+# Side: dies if no project can be determined
 require_project() {
     local project="$1"
     local error_msg="${2:-Could not detect project. Use --project option.}"
@@ -149,8 +169,9 @@ require_project() {
     echo "$project"
 }
 
-# Detect project from current directory
+# Detect the project for the current directory by repo root or configured repo_path.
 # Returns empty string if not in a project (does not return error code to avoid set -e issues)
+# Out:  project name, or empty string when none matches
 detect_project() {
     if ! is_git_repo 2>/dev/null; then
         echo ""
@@ -201,8 +222,9 @@ detect_project() {
     return 0
 }
 
-# Load project configuration
-# Sets PROJECT_* variables
+# Load a project's config into PROJECT_* globals and validate its port ranges.
+# Args: $1 project
+# Side: sets PROJECT_{NAME,REPO_PATH,CONFIG_FILE,RESERVED_PORT_*,DYNAMIC_PORT_*,RESERVED_SLOTS,WORKTREE_DIR}; dies on missing config or invalid port range
 load_project_config() {
     local project="$1"
 
@@ -262,13 +284,17 @@ load_project_config() {
     log_debug "  Dynamic ports: $PROJECT_DYNAMIC_PORT_MIN-$PROJECT_DYNAMIC_PORT_MAX"
 }
 
-# Get setup steps from config
+# Count the configured setup steps.
+# Args: $1 config_file
+# Out:  number of entries under .setup
 get_setup_steps() {
     local config_file="$1"
     yaml_array_length "$config_file" ".setup"
 }
 
-# Get setup step by index
+# Read one field of a setup step by index.
+# Args: $1 config_file, $2 index, $3 field
+# Out:  field value at .setup[index].field
 get_setup_step() {
     local config_file="$1"
     local index="$2"
@@ -277,13 +303,17 @@ get_setup_step() {
     yaml_get "$config_file" ".setup[$index].$field"
 }
 
-# Get services from config
+# Count the configured services.
+# Args: $1 config_file
+# Out:  number of entries under .services
 get_services() {
     local config_file="$1"
     yaml_array_length "$config_file" ".services"
 }
 
-# Get service by name
+# Read one field of a service selected by name.
+# Args: $1 config_file, $2 service_name, $3 field
+# Out:  the field value of the matching service
 get_service_config() {
     local config_file="$1"
     local service_name="$2"
@@ -292,7 +322,9 @@ get_service_config() {
     yq ".services[] | select(.name == \"$service_name\") | .$field" "$config_file" 2>/dev/null
 }
 
-# Get service by index
+# Read one field of a service by index.
+# Args: $1 config_file, $2 index, $3 field
+# Out:  field value at .services[index].field
 get_service_by_index() {
     local config_file="$1"
     local index="$2"
@@ -301,7 +333,9 @@ get_service_by_index() {
     yaml_get "$config_file" ".services[$index].$field"
 }
 
-# Get environment variables from config
+# Read the config's env map as KEY=VALUE lines.
+# Args: $1 config_file
+# Out:  KEY=VALUE lines (empty when file absent)
 get_env_vars() {
     local config_file="$1"
 
@@ -314,6 +348,8 @@ get_env_vars() {
 
 # Export KEY=VALUE lines with variable expansion via envsubst
 # Usage: export_env_string "$key_value_lines"
+# Args: $1 newline-separated KEY=VALUE lines
+# Side: exports each KEY into the environment
 export_env_string() {
     local key value
     while IFS='=' read -r key value; do
@@ -323,15 +359,19 @@ export_env_string() {
     done <<< "$1"
 }
 
-# Export environment variables from config
+# Export the config's env map into the environment.
+# Args: $1 config_file
+# Side: exports each configured env var
 export_env_vars() {
     local config_file="$1"
     export_env_string "$(get_env_vars "$config_file")"
 }
 
-# Run a hook from config if defined
+# Run a named hook command from config if one is defined.
 # Export environment variables before calling this function
 # Usage: run_hook <config_file> <hook_name>
+# Args: $1 config_file, $2 hook_name
+# Side: eval's the hook command; warns on non-zero exit
 run_hook() {
     local config_file="$1"
     local hook_name="$2"
@@ -346,9 +386,11 @@ run_hook() {
     fi
 }
 
-# Resolve DB URL template from project config
+# Resolve the worktree's DB URL from its env file, else the config template.
 # Requires PORT_* vars to be in scope (via export_port_vars or manual export)
-# Usage: resolve_db_url <config_file>
+# Usage: resolve_db_url <config_file> [worktree_path]
+# Args: $1 config_file, $2 worktree_path (opt)
+# Out:  resolved DB URL (returns non-zero when no template configured)
 resolve_db_url() {
     local config_file="$1"
     local worktree_path="${2:-}"
@@ -380,11 +422,14 @@ resolve_db_url() {
 
 # Mask the password in a postgres URL for display: user:pass@host -> user:****@host.
 # URLs with no password (postgresql://user@host) are returned unchanged.
+# Args: $1 db_url
+# Out:  the URL with its password masked
 redact_db_url() {
     echo "$1" | sed -E 's|(://[^:/@]+):[^@]*@|\1:****@|'
 }
 
-# List all configured projects
+# List all configured project names.
+# Out:  project names, one per line
 list_projects() {
     for config_file in "$WT_PROJECTS_DIR"/*.yaml; do
         [[ -f "$config_file" ]] || continue

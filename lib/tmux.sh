@@ -11,27 +11,32 @@ if [[ -z "${WT_TMUX_SESSION:-}" ]]; then
     fi
 fi
 
-# Check if tmux is available
+# Abort unless the tmux binary is installed.
+# Side: calls die (exits) when tmux is missing
 ensure_tmux() {
     if ! command_exists tmux; then
         die "tmux is required but not installed. Install with: brew install tmux"
     fi
 }
 
-# Check if a tmux session exists
+# Test whether a tmux session exists (predicate).
+# Args: $1 session
 session_exists() {
     local session="$1"
     tmux has-session -t "$session" 2>/dev/null
 }
 
-# Check if a window exists in a session
+# Test whether a named window exists in a session (predicate).
+# Args: $1 session, $2 window
 window_exists() {
     local session="$1"
     local window="$2"
     tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null | grep -q "^${window}$"
 }
 
-# Get next available window index in a session
+# Find the lowest unused window index in a session.
+# Args: $1 session
+# Out:  next available window index
 get_next_available_window_index() {
     local session="$1"
     local used_indices
@@ -48,7 +53,9 @@ get_next_available_window_index() {
     echo "$next"
 }
 
-# Get session name from config or default
+# Resolve the tmux session name from config, falling back to the default.
+# Args: $1 config_file
+# Out:  session name
 get_tmux_session_name() {
     local config_file="$1"
     local session_name
@@ -56,8 +63,10 @@ get_tmux_session_name() {
     echo "${session_name:-$WT_TMUX_SESSION}"
 }
 
-# Create or get the main tmux session, then add a window for this worktree
+# Create or reuse the main tmux session, then add a window for this worktree.
 # Window name = sanitized branch name
+# Args: $1 window_name (branch), $2 root_dir, $3 config_file, $4 window_index (optional)
+# Side: creates/updates tmux session, windows, and panes
 create_session() {
     local window_name="$1"  # This is now the window name (branch)
     local root_dir="$2"
@@ -124,7 +133,9 @@ create_session() {
     return 0
 }
 
-# Setup panes for a worktree window
+# Split and configure the panes for a worktree window per config.
+# Args: $1 session, $2 window, $3 root_dir, $4 config_file
+# Side: creates tmux panes, applies layout, sends keys
 setup_window_panes_for_worktree() {
     local session="$1"
     local window="$2"
@@ -163,7 +174,9 @@ setup_window_panes_for_worktree() {
     configure_window_panes "$session" "$window" "$config_file" "$pane_count" "$root_dir"
 }
 
-# Wrapper for worktree window layout - delegates to setup_services_top_layout with win_idx=0
+# Apply the services-top layout to a worktree window (delegates with win_idx=0).
+# Args: $1 session, $2 window, $3 root_dir, $4 config_file, $5 pane_count
+# Side: creates tmux panes and sends keys
 setup_services_top_layout_window() {
     local session="$1"
     local window="$2"
@@ -175,7 +188,9 @@ setup_services_top_layout_window() {
     setup_services_top_layout "$session" "$window" "$root_dir" "$config_file" "0" "$pane_count"
 }
 
-# Wrapper for worktree window layout - delegates to setup_services_top_2_layout with win_idx=0
+# Apply the services-top-2 layout to a worktree window (delegates with win_idx=0).
+# Args: $1 session, $2 window, $3 root_dir, $4 config_file, $5 pane_count
+# Side: creates tmux panes and sends keys
 setup_services_top_2_layout_window() {
     local session="$1"
     local window="$2"
@@ -187,7 +202,9 @@ setup_services_top_2_layout_window() {
     setup_services_top_2_layout "$session" "$window" "$root_dir" "$config_file" "0" "$pane_count"
 }
 
-# Configure panes in a window
+# Send cd + service/command keystrokes into each pane of a window.
+# Args: $1 session, $2 window, $3 config_file, $4 pane_count, $5 root_dir
+# Side: sends keys to tmux panes
 configure_window_panes() {
     local session="$1"
     local window="$2"
@@ -240,12 +257,14 @@ configure_window_panes() {
     done
 }
 
-# Custom layout: services on top, main panes on bottom
+# Arrange a window as the services-top layout: services on top, main panes below.
 # +----------+----------+----------+
 # | service1 | service2 | service3 |  <- 35% height
 # +----------+----------+----------+
 # |     claude (80%)     |  wt(20%)|  <- 65% height
 # +----------------------+---------+
+# Args: $1 session, $2 window, $3 root_dir, $4 config_file, $5 win_idx, $6 pane_count
+# Side: creates tmux panes, sends keys, selects the active pane
 setup_services_top_layout() {
     local session="$1"
     local window="$2"
@@ -343,12 +362,14 @@ setup_services_top_layout() {
     tmux select-pane -t "${session}:${window}.${active_pane}" 2>/dev/null || true
 }
 
-# Custom layout: 2 services on top, 2 command panes on bottom
+# Arrange a window as the services-top-2 layout: 2 services on top, 2 command panes below.
 # +----------+----------+
 # | svc1 50% | svc2 50% |  <- 35% height
 # +----------+----------+
 # | claude 65% | wt 35% |  <- 65% height
 # +----------+----------+
+# Args: $1 session, $2 window, $3 root_dir, $4 config_file, $5 win_idx, $6 pane_count
+# Side: creates tmux panes, sends keys, selects the claude pane
 setup_services_top_2_layout() {
     local session="$1"
     local window="$2"
@@ -421,7 +442,9 @@ setup_services_top_2_layout() {
     tmux select-pane -t "${session}:${window}.2"
 }
 
-# Kill a tmux window (not the whole session)
+# Kill the worktree's tmux window (leaves the session intact).
+# Args: $1 window_name, $2 config_file (optional)
+# Side: kills the tmux window
 kill_session() {
     local window_name="$1"
     local config_file="${2:-}"
@@ -447,7 +470,9 @@ kill_session() {
     tmux kill-window -t "${session}:${window_name}"
 }
 
-# Attach to a tmux session and select the worktree window
+# Attach to (or switch the client to) the tmux session and select the worktree window.
+# Args: $1 window_name, $2 config_file (optional)
+# Side: selects the window, attaches/switches the tmux client
 attach_session() {
     local window_name="$1"
     local config_file="${2:-}"
@@ -479,13 +504,17 @@ attach_session() {
     fi
 }
 
-# List tmux windows in the main session
+# List the window names in the main tmux session.
+# Args: $1 session (optional, defaults to $WT_TMUX_SESSION)
+# Out:  window names, one per line
 list_sessions() {
     local session="${1:-$WT_TMUX_SESSION}"
     tmux list-windows -t "$session" -F "#{window_name}" 2>/dev/null || true
 }
 
-# Send command to a specific pane
+# Send a command line (followed by Enter) to a specific pane.
+# Args: $1 session, $2 window, $3 pane, $4 command
+# Side: sends keys to the tmux pane
 send_to_pane() {
     local session="$1"
     local window="$2"
@@ -495,7 +524,9 @@ send_to_pane() {
     tmux send-keys -t "${session}:${window}.${pane}" "$command" Enter
 }
 
-# Find pane for a service
+# Locate the window:pane hosting a given service from config.
+# Args: $1 session, $2 service_name, $3 config_file
+# Out:  window_name:pane_index (when found)
 find_service_pane() {
     local session="$1"
     local service_name="$2"
@@ -525,7 +556,9 @@ find_service_pane() {
     return 1
 }
 
-# Create a new window for a service
+# Create a dedicated tmux window for a service (idempotent).
+# Args: $1 session, $2 service_name, $3 working_dir
+# Side: creates a tmux window
 create_service_window() {
     local session="$1"
     local service_name="$2"
@@ -545,7 +578,9 @@ create_service_window() {
     tmux new-window -t "$session" -n "$service_name" -c "$working_dir"
 }
 
-# Get session info
+# Print each window's index, name, and active flag for a session.
+# Args: $1 session
+# Out:  index:name:active, one window per line
 session_info() {
     local session="$1"
 
@@ -556,8 +591,10 @@ session_info() {
     tmux list-windows -t "$session" -F "#{window_index}:#{window_name}:#{window_active}"
 }
 
-# Capture pane output
+# Capture the recent scrollback text of a pane.
 # Usage: capture_pane <session> <window> <pane> [lines]
+# Args: $1 session, $2 window, $3 pane, $4 lines (optional, default 50)
+# Out:  captured pane text
 capture_pane() {
     local session="$1"
     local window="$2"
@@ -567,8 +604,10 @@ capture_pane() {
     tmux capture-pane -t "${session}:${window}.${pane}" -p -S "-${lines}"
 }
 
-# List panes in a window with format info
+# List each pane in a window with its format info.
 # Returns: index, active, current_command, width x height
+# Args: $1 session, $2 window
+# Out:  pane_index:pane_active:current_command:WxH, one per line
 list_window_panes() {
     local session="$1"
     local window="$2"
@@ -576,7 +615,9 @@ list_window_panes() {
     tmux list-panes -t "${session}:${window}" -F "#{pane_index}:#{pane_active}:#{pane_current_command}:#{pane_width}x#{pane_height}" 2>/dev/null
 }
 
-# Send interrupt (Ctrl+C) to a pane
+# Send an interrupt (Ctrl+C) to a pane or window.
+# Args: $1 session, $2 target (window:pane or window)
+# Side: sends C-c to the tmux target
 interrupt_pane() {
     local session="$1"
     local target="$2"  # window:pane or just window

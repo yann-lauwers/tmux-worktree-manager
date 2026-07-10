@@ -9,6 +9,8 @@
 #   wt pr c -r                    # Interactive resolve
 #   wt pr c -p nexus              # Specific project
 
+# Route `wt pr` to browser-open (default) or the conflicts subcommand.
+# Args: $1 subcommand (conflicts|c|-h|--help) else a branch; remaining args forwarded
 cmd_pr() {
     case "${1:-}" in
         conflicts|c)
@@ -24,6 +26,7 @@ cmd_pr() {
     esac
 }
 
+# Print `wt pr` usage help.
 show_pr_help() {
     echo -e "${BOLD}wt pr${NC} - PR management"
     echo ""
@@ -40,6 +43,9 @@ show_pr_help() {
 
 # ─── wt pr [branch] — open in browser ──────────────────────────────────────
 
+# Resolve the branch's PR and open it in the browser.
+# Args: $1 branch (opt; auto-detected from the current worktree if omitted)
+# Side: queries gh; opens the PR URL via open/xdg-open; log_warn if none; dies if no branch resolvable
 _pr_open() {
     local branch="${1:-}"
 
@@ -75,6 +81,9 @@ _pr_open() {
 
 # ─── wt pr conflicts — list and resolve conflicting PRs ────────────────────
 
+# List (and optionally resolve) open PRs with merge conflicts across projects.
+# Args: -p/--project <name>, -a/--all, -r/--resolve, -q/--quick, -h/--help
+# Side: reads $WT_PROJECTS_DIR configs; runs gh/git/yq; fzf pickers; may dispatch rebase/merge; dies if fzf missing in resolve mode
 cmd_pr_conflicts() {
     local filter=""
     local all=false
@@ -326,6 +335,9 @@ cmd_pr_conflicts() {
     echo -e "${DIM}Use -r to interactively resolve${NC}"
 }
 
+# Rebase a worktree's branch onto its base, attaching a tmux window if conflicts arise.
+# Args: $1 project, $2 branch, $3 wt_path, $4 base_branch
+# Side: git fetch/rebase in $wt_path; loads project config + attaches tmux session on conflict; returns 1 on conflict/missing worktree
 _pr_conflicts_rebase() {
     local project="$1"
     local branch="$2"
@@ -366,6 +378,9 @@ _pr_conflicts_rebase() {
     echo -e "  git -C ${wt_path} push --force-with-lease"
 }
 
+# Merge a worktree's base branch into its branch, attaching a tmux window if conflicts arise.
+# Args: $1 project, $2 branch, $3 wt_path, $4 base_branch
+# Side: git fetch/merge in $wt_path; loads project config + attaches tmux session on conflict; returns 1 on conflict/missing worktree
 _pr_conflicts_merge() {
     local project="$1"
     local branch="$2"
