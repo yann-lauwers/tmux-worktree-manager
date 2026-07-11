@@ -129,3 +129,44 @@ services: []"
     [[ "$output" == *"Summary"* ]]
     [[ "$output" == *"passed"* ]]
 }
+
+# --- Regression: survives set -e through every section ---
+#
+# wt.sh runs under `set -euo pipefail`. Post-increment `((counter++))` returns
+# the pre-increment value as its exit status, so `((passed++))` at passed==0
+# exits 1 and errexit aborts doctor right after the first check. bats's own
+# `run` disables errexit, so the bug only surfaces in a subshell that re-enables
+# it — which is what this test does.
+@test "doctor runs to completion under set -e (counter regression)" {
+    local project="healthy"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: healthy
+repo_path: $TEST_TMPDIR
+ports:
+  reserved:
+    range:
+      min: 3000
+      max: 3010
+  dynamic:
+    range:
+      min: 4000
+      max: 5000
+services: []"
+
+    run bash -c "set -euo pipefail
+        for l in utils config port state worktree setup tmux service; do
+            source '$WT_SCRIPT_DIR/lib/'\$l'.sh'
+        done
+        source '$WT_SCRIPT_DIR/commands/doctor.sh'
+        cmd_doctor -p '$project' 2>&1"
+
+    # Healthy fixture: no FAILs, so doctor exits 0 rather than aborting mid-run.
+    [ "$status" -eq 0 ]
+    # All five sections plus the summary must appear — the buggy version died
+    # after "Dependencies" and never reached the rest.
+    [[ "$output" == *"Dependencies"* ]]
+    [[ "$output" == *"Project Configuration"* ]]
+    [[ "$output" == *"State Consistency"* ]]
+    [[ "$output" == *"Tmux Health"* ]]
+    [[ "$output" == *"Port Conflicts"* ]]
+    [[ "$output" == *"Summary"* ]]
+}

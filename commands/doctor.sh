@@ -168,7 +168,7 @@ cmd_doctor() {
                 wt_path=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".path" "")
                 if [[ -n "$wt_path" ]] && [[ ! -d "$wt_path" ]]; then
                     _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing)"
-                    ((orphaned++))
+                    orphaned=$((orphaned + 1))
                 fi
             done < <(list_worktree_states "$project")
 
@@ -189,7 +189,7 @@ cmd_doctor() {
                     if [[ "$svc_status" == "running" ]] && [[ -n "$svc_pid" ]] && [[ "$svc_pid" != "null" ]]; then
                         if ! kill -0 "$svc_pid" 2>/dev/null; then
                             _doctor_warn "Stale PID for $svc_name in $branch_name: PID $svc_pid not running"
-                            ((stale_pids++))
+                            stale_pids=$((stale_pids + 1))
                         fi
                     fi
                 done < <(list_service_states "$project" "$branch_name")
@@ -263,7 +263,7 @@ cmd_doctor() {
 
                     if echo "$all_ports" | grep -q ":${effective_port}$"; then
                         _doctor_fail "Duplicate port $effective_port: $svc_name ($branch_name) conflicts with another service"
-                        ((duplicate_ports++))
+                        duplicate_ports=$((duplicate_ports + 1))
                     fi
                     all_ports="$all_ports
 $svc_name@$sanitized_branch:$effective_port"
@@ -290,17 +290,17 @@ $svc_name@$sanitized_branch:$effective_port"
 # Helper functions for doctor output
 _doctor_pass() {
     echo -e "  ${GREEN}PASS${NC}  $1"
-    ((passed++))
+    passed=$((passed + 1))
 }
 
 _doctor_fail() {
     echo -e "  ${RED}FAIL${NC}  $1"
-    ((failed++))
+    failed=$((failed + 1))
 }
 
 _doctor_warn() {
     echo -e "  ${YELLOW}WARN${NC}  $1"
-    ((warnings++))
+    warnings=$((warnings + 1))
 }
 
 _doctor_check_cmd() {
