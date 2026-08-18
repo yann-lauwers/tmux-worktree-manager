@@ -162,42 +162,42 @@ cmd_db_reset() {
 
     # Step 4: Apply schema
     if [[ $seed -eq 1 ]]; then
-        # Seed mode: restore from staging dump
+        # Seed mode: restore from the seed-source dump
         local seed_dump="$HOME/.local/share/nexus/seed.dump"
         local seed_max_age=$(( 24 * 3600 ))
 
         # Auto-refresh if dump is missing or older than 24h
         if [[ $fresh_dump -eq 0 ]]; then
             if [[ ! -f "$seed_dump" ]]; then
-                log_info "No cached dump found — refreshing from staging"
+                log_info "No cached dump found — refreshing from the seed source"
                 fresh_dump=1
             else
                 local seed_age=$(( $(date +%s) - $(stat -f%m "$seed_dump") ))
                 if (( seed_age > seed_max_age )); then
                     local seed_hours=$(( seed_age / 3600 ))
-                    log_info "Cached dump is ${seed_hours}h old (>24h) — refreshing from staging"
+                    log_info "Cached dump is ${seed_hours}h old (>24h) — refreshing from the seed source"
                     fresh_dump=1
                 fi
             fi
         fi
 
         if [[ $fresh_dump -eq 1 ]]; then
-            log_info "Refreshing staging dump..."
+            log_info "Refreshing the seed-source dump..."
             rm -f "$seed_dump"
 
             local repo_path
             repo_path=$(yaml_get "$PROJECT_CONFIG_FILE" ".repo_path" "")
             repo_path="${repo_path/#\~/$HOME}"
 
-            local staging_url
-            staging_url=$(grep '^DIRECT_URL=' "$repo_path/packages/prisma-db/.env" 2>/dev/null | cut -d= -f2-)
-            if [[ -z "$staging_url" ]]; then
-                log_warn "No DIRECT_URL in main repo — cannot dump staging"
+            local seed_source_url
+            seed_source_url=$(grep '^DIRECT_URL=' "$repo_path/packages/prisma-db/.env" 2>/dev/null | cut -d= -f2-)
+            if [[ -z "$seed_source_url" ]]; then
+                log_warn "No DIRECT_URL in main repo — cannot dump the seed source"
             else
                 mkdir -p "$(dirname "$seed_dump")"
-                pg_dump --format=custom --no-owner --no-acl "$staging_url" > "$seed_dump.tmp" \
+                pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
                     && mv "$seed_dump.tmp" "$seed_dump" \
-                    && log_success "Staging DB dumped ($(du -h "$seed_dump" | cut -f1))" \
+                    && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
                     || { log_warn "pg_dump failed — falling back to migrate deploy"; rm -f "$seed_dump.tmp"; }
             fi
         fi
@@ -281,7 +281,7 @@ cmd_db_dump() {
             -h|--help)
                 echo "Usage: wt db dump [-p project]"
                 echo ""
-                echo "Refresh the cached staging dump from the main repo's DIRECT_URL."
+                echo "Refresh the cached seed-source dump from the main repo's DIRECT_URL."
                 echo "Reads connection string from the root worktree (not the current one)."
                 echo ""
                 echo "Cache: ~/.local/share/nexus/seed.dump"
@@ -315,9 +315,9 @@ cmd_db_dump() {
         return 1
     fi
 
-    local staging_url
-    staging_url=$(grep '^DIRECT_URL=' "$repo_path/packages/prisma-db/.env" 2>/dev/null | cut -d= -f2-)
-    if [[ -z "$staging_url" ]]; then
+    local seed_source_url
+    seed_source_url=$(grep '^DIRECT_URL=' "$repo_path/packages/prisma-db/.env" 2>/dev/null | cut -d= -f2-)
+    if [[ -z "$seed_source_url" ]]; then
         log_error "No DIRECT_URL found in $repo_path/packages/prisma-db/.env"
         return 1
     fi
@@ -335,14 +335,14 @@ cmd_db_dump() {
         log_info "No cached dump found"
     fi
 
-    log_info "Dumping staging DB from main repo..."
+    log_info "Dumping the seed-source DB from main repo..."
     print_kv "Source" "$repo_path/packages/prisma-db/.env"
     print_kv "Target" "$seed_dump"
     echo ""
 
-    pg_dump --format=custom --no-owner --no-acl "$staging_url" > "$seed_dump.tmp" \
+    pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
         && mv "$seed_dump.tmp" "$seed_dump" \
-        && log_success "Staging DB dumped ($(du -h "$seed_dump" | cut -f1))" \
+        && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
         || { log_error "pg_dump failed"; rm -f "$seed_dump.tmp"; return 1; }
 }
 
@@ -355,7 +355,7 @@ Database management for worktrees.
 Subcommands:
   reset [branch]     Stop, wipe, and recreate the ephemeral Postgres
   use-remote [branch] Stop the ephemeral and point env refs at main repo's remote DB
-  dump               Refresh the cached staging dump from main repo
+  dump               Refresh the cached seed-source dump from main repo
   url [branch]       Print the database connection URL
 
 Options:
@@ -363,11 +363,11 @@ Options:
 
 Examples:
   wt db reset                    # Fresh DB + replay all migrations
-  wt db reset --seed             # Restore from cached staging dump instead
-  wt db reset --seed --fresh     # Re-dump staging first, then restore
+  wt db reset --seed             # Restore from cached seed-source dump instead
+  wt db reset --seed --fresh     # Re-dump the seed source first, then restore
   wt db use-remote               # Kill ephemeral + point env at remote DB
   wt db use-remote -y            # Same, skip confirmation
-  wt db dump                     # Refresh staging dump cache
+  wt db dump                     # Refresh seed-source dump cache
   wt db url                      # Print DB URL for current worktree
 EOF
 }
@@ -559,15 +559,15 @@ Arguments:
   [branch]           Branch name (defaults to current branch)
 
 Options:
-  --seed             Restore from cached staging dump instead of migrating
-  --fresh            Re-dump staging before restoring (requires --seed)
+  --seed             Restore from cached seed-source dump instead of migrating
+  --fresh            Re-dump the seed source before restoring (requires --seed)
   -p, --project      Project name (auto-detected if not specified)
   -h, --help         Show this help message
 
 Examples:
   wt db reset                           # Fresh DB + replay all migrations
-  wt db reset --seed                    # Restore from cached staging dump
-  wt db reset --seed --fresh            # Re-dump staging first, then restore
+  wt db reset --seed                    # Restore from cached seed-source dump
+  wt db reset --seed --fresh            # Re-dump the seed source first, then restore
   wt db reset yann-lauwers/nex-1663     # Reset for specific branch
 EOF
 }
