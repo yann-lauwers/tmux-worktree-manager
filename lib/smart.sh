@@ -410,6 +410,66 @@ smart_resolve_opener() {
     fi
 }
 
+# Find a cmux workspace already open at a path.
+# Args: $1 absolute worktree path
+# Out: that workspace's ref (e.g. "workspace:8"); nothing when none holds the path,
+#      when cmux or jq is absent, or when cmux answers with something unparseable.
+#      Several workspaces can hold one path, so the first in cmux's own order wins.
+smart_find_cmux_workspace() {
+    local path="$1"
+    local name="${2:-$(basename "$path")}"
+
+    command -v cmux &>/dev/null || return 0
+    if ! command -v jq &>/dev/null; then
+        log_warn "jq not found — cannot reuse an open workspace; a new one will be created each time"
+        return 0
+    fi
+
+    local listing
+    listing=$(cmux rpc workspace.list '{}' 2>/dev/null) || return 0
+
+    # Path first: it is the stronger claim when it holds. current_directory tracks
+    # where the terminal actually is, so a workspace whose shell cd'd into a
+    # subdirectory stops matching its own worktree — the title does not move.
+    local by_path
+    by_path=$(jq -r --arg p "$path" \
+        '.workspaces[]? | select(.current_directory == $p) | .ref' <<< "$listing" 2>/dev/null | head -1)
+    if [[ -n "$by_path" ]]; then
+        echo "$by_path"
+        return 0
+    fi
+
+    jq -r --arg n "$name" --arg p "$path" \
+        '.workspaces[]? | select(.custom_title == $n and (.current_directory | startswith($p))) | .ref' \
+        <<< "$listing" 2>/dev/null | head -1
+}
+
+# Open a worktree in cmux, reusing the workspace already at that path.
+# Args: $1 absolute worktree path
+# Side: selects the existing cmux workspace, or creates one named for the worktree
+smart_cmux_open() {
+    local wt_path="$1"
+
+    # Both lookups are advisory: under `set -e` an assignment on its own line takes
+    # the command's exit status, so a daemon that is down or a reply with a preamble
+    # would kill wt here with no message and no workspace. A failed lookup means
+    # "no workspace known", never "give up".
+    local existing=""
+    existing=$(smart_find_cmux_workspace "$wt_path" || true)
+
+    if [[ -n "$existing" ]]; then
+        cmux select-workspace --workspace "$existing" && return 0
+        log_warn "Could not select ${existing}; opening a new workspace instead"
+    fi
+
+    cmux new-workspace --name "$(basename "$wt_path")" --cwd "$wt_path" --focus true && return 0
+
+    # Last resort, and the behaviour this path replaced: the bare form launches cmux
+    # when it is not running, which neither RPC above does.
+    log_warn "cmux RPC did not answer; falling back to opening the path directly"
+    cmux "$wt_path"
+}
+
 # Resolve editor command (for wt code)
 smart_resolve_editor() {
     local global_config="$HOME/.config/wt/config.yaml"

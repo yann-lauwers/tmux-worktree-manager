@@ -5,7 +5,7 @@ _wt_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="create c open o ls rm prune code cursor pr delete list start up stop down status st attach a run exec init config ports send s logs log panes doctor doc help version"
+    local commands="create c open o ls rm prune code cursor pr delete list start up stop down status st attach a run exec init config ports send s logs log panes doctor doc help version lane"
 
     # Get current word and previous word
     cur="${COMP_WORDS[COMP_CWORD]}"

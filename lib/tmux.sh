@@ -71,6 +71,11 @@ create_session() {
     session=$(get_tmux_session_name "$config_file")
 
     # Create session if it doesn't exist
+    if [[ ! -d "$workdir" ]]; then
+        log_error "No such directory for lane ${window}: $workdir"
+        return 1
+    fi
+
     if ! session_exists "$session"; then
         log_info "Creating tmux session: $session"
         if ! tmux new-session -d -s "$session" -c "$root_dir" -n "$window_name"; then
@@ -122,6 +127,56 @@ create_session() {
 
     log_success "Window '$window_name' ready in session '$session'"
     return 0
+}
+
+# Create a detached tmux window running one command in a worktree.
+# Args: $1 session, $2 window name, $3 working directory, $4 command
+# Out: nothing
+# Side: creates the session when absent, then the window. Returns non-zero and
+#       runs nothing when the window already exists or the directory does not;
+#       returns non-zero when the command died before the window settled.
+#
+# Success means a lane is ALIVE in the directory it was given, not that tmux
+# accepted the request. tmux answers both the same way: it falls back to the home
+# directory for a missing -c, and it reaps a window whose command exits at once —
+# reporting 0 either time. Each is a lane silently running somewhere, or nowhere,
+# while the caller prints success.
+#
+# NOT concurrency-safe, and tmux offers no primitive that would make it so: the
+# existence check and the creation are two calls, and tmux permits duplicate
+# window names. Two sessions starting the same lane at the same instant both
+# pass the check and both create one. Single-caller by design — the launcher
+# runs one command per ticket, in sequence.
+create_lane_window() {
+    local session="$1"
+    local window="$2"
+    local workdir="$3"
+    local command="$4"
+
+    if [[ ! -d "$workdir" ]]; then
+        log_error "No such directory for lane ${window}: $workdir"
+        return 1
+    fi
+
+    if ! session_exists "$session"; then
+        tmux new-session -d -s "$session" -c "$workdir" -n "$window" "$command" || return 1
+    else
+        if window_exists "$session" "$window"; then
+            log_error "Lane window already exists: ${session}:${window}"
+            return 1
+        fi
+        tmux new-window -d -t "$session" -n "$window" -c "$workdir" "$command" || return 1
+    fi
+
+    if ! window_exists "$session" "$window"; then
+        log_error "Lane ${session}:${window} exited immediately — its command did not start"
+        return 1
+    fi
+
+    # A lane that dies AFTER this check would otherwise take its own output with
+    # it, leaving a reported-running lane that is simply absent. Keeping the dead
+    # window holds the error that killed it.
+    tmux set-option -t "${session}:${window}" remain-on-exit on 2>/dev/null || true
 }
 
 # Setup panes for a worktree window

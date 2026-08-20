@@ -36,6 +36,7 @@ _wt() {
         'logs:Capture pane output'
         'log:Capture pane output (alias)'
         'panes:List panes for a worktree'
+        'lane:Run a detached claude session per worktree'
         'doctor:Run diagnostic checks'
         'doc:Run diagnostic checks (alias)'
         'init:Initialize project configuration'

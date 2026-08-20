@@ -55,7 +55,7 @@ cmd_open() {
 
     case "$opener" in
         cmux)
-            exec cmux "$wt_path"
+            smart_cmux_open "$wt_path"
             ;;
         tmux)
             # Try to attach to existing session or create new one

@@ -47,6 +47,7 @@ source "${WT_SCRIPT_DIR}/commands/logs.sh"
 source "${WT_SCRIPT_DIR}/commands/panes.sh"
 source "${WT_SCRIPT_DIR}/commands/doctor.sh"
 source "${WT_SCRIPT_DIR}/commands/open.sh"
+source "${WT_SCRIPT_DIR}/commands/lane.sh"
 source "${WT_SCRIPT_DIR}/commands/smartlist.sh"
 source "${WT_SCRIPT_DIR}/commands/db.sh"
 # smartdelete.sh + prune.sh merged into delete.sh — `wt rm` is the single delete surface
@@ -113,6 +114,7 @@ ${BOLD}CORE COMMANDS${NC}
 
     ${CYAN}Session Management${NC}
     attach, a       Attach to tmux session
+    lane            Run a detached claude session per worktree (start|ls)
 
     ${CYAN}Tmux Integration${NC}
     send, s         Send command to a tmux pane
@@ -239,6 +241,9 @@ main() {
             ;;
         o|open)
             cmd_open "$@"
+            ;;
+        lane)
+            cmd_lane "$@"
             ;;
         ls)
             cmd_smartlist "$@"
