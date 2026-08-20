@@ -106,7 +106,8 @@ cmd_ports() {
 
     # Auto-detect branch from current git branch if not specified
     if [[ -z "$branch" ]]; then
-        branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        branch=$(detect_worktree_branch)
+        [[ -z "$branch" ]] && branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
             log_error "Branch name is required (could not auto-detect)"
             show_ports_help
@@ -123,7 +124,14 @@ cmd_ports() {
     slot=$(get_slot_for_worktree "$project" "$branch")
 
     if [[ -z "$slot" ]]; then
-        # Calculate what slot would be assigned (for preview)
+        # A branch wt does not manage has no slot. Falling through to slot 0 here
+        # would print another worktree's real ports as if they were this branch's,
+        # and still exit 0 — a caller cannot tell the answer is fiction. Fail the
+        # same way `wt status` does, and keep the projected-ports preview for a
+        # worktree that exists but has not claimed a slot yet.
+        if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
+            die "Worktree not found for branch: $branch"
+        fi
         log_info "Worktree not created yet, showing projected ports..."
         slot=0
     fi

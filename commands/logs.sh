@@ -83,11 +83,16 @@ cmd_logs() {
     local window_name
     window_name=$(get_session_name "$project" "$branch")
 
-    if ! session_exists "$tmux_session"; then
-        die "Tmux session does not exist: $tmux_session"
+    # Direct mode is the default for `wt start` and writes per-service log files;
+    # tmux mode is legacy. Try the files first — a stale tmux session can exist
+    # with no service panes, in which case the tmux path finds nothing and exits
+    # silently, which reads as "no errors" rather than "no logs".
+    if _logs_from_files "$project" "$branch" "$target" "$lines" "$show_all"; then
+        return 0
     fi
-    if ! window_exists "$tmux_session" "$window_name"; then
-        die "Tmux window does not exist: $window_name"
+
+    if ! session_exists "$tmux_session" || ! window_exists "$tmux_session" "$window_name"; then
+        die "No logs for $branch — no direct-mode log file, and no tmux session. Start services with: wt start"
     fi
 
     if [[ "$show_all" -eq 1 ]]; then
@@ -116,9 +121,12 @@ cmd_logs() {
         if [[ "$target" =~ ^[0-9]+$ ]]; then
             pane_idx="$target"
         else
-            pane_idx=$(find_service_pane_index "$PROJECT_CONFIG_FILE" "$target")
+            # `|| true` matters: find_service_pane_index returns 1 when the service
+            # has no pane, and under `set -e` the assignment would abort the script
+            # here — exiting 1 with no message at all, which reads as empty logs.
+            pane_idx=$(find_service_pane_index "$PROJECT_CONFIG_FILE" "$target" || true)
             if [[ -z "$pane_idx" ]]; then
-                die "Service not found in pane config: $target"
+                die "Service '$target' has no tmux pane and no direct-mode log file. Running services log to: $(service_log_file "$project" "$branch" "$target")"
             fi
         fi
 
@@ -127,6 +135,45 @@ cmd_logs() {
         # Default: show pane 0
         capture_pane "$tmux_session" "$window_name" "0" "$lines"
     fi
+}
+
+# Read direct-mode log files. Returns 1 when none exist, so the caller can fall
+# through to its own error rather than reporting success on an empty read.
+_logs_from_files() {
+    local project="$1"
+    local branch="$2"
+    local target="$3"
+    local lines="$4"
+    local show_all="$5"
+
+    local found=0
+
+    if [[ -n "$target" ]] && [[ "$show_all" -ne 1 ]]; then
+        local log_file
+        log_file=$(service_log_file "$project" "$branch" "$target")
+        if [[ -f "$log_file" ]]; then
+            tail -n "$lines" "$log_file"
+            found=1
+        fi
+    else
+        local service_count
+        service_count=$(get_services "$PROJECT_CONFIG_FILE")
+
+        local i
+        for ((i = 0; i < service_count; i++)); do
+            local name log_file
+            name=$(get_service_by_index "$PROJECT_CONFIG_FILE" "$i" "name")
+            log_file=$(service_log_file "$project" "$branch" "$name")
+            [[ -f "$log_file" ]] || continue
+
+            echo -e "${BOLD}=== $name ===${NC}"
+            tail -n "$lines" "$log_file"
+            echo ""
+            found=1
+        done
+    fi
+
+    [[ "$found" -eq 1 ]]
 }
 
 show_logs_help() {

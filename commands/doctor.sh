@@ -166,8 +166,14 @@ cmd_doctor() {
             while read -r sanitized_branch; do
                 [[ -z "$sanitized_branch" ]] && continue
                 wt_path=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".path" "")
+                local entry_branch entry_ctx
+                entry_branch=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
+                entry_ctx=$(_doctor_port_context "$state_f" "$sanitized_branch" "$entry_branch" "$config_file")
                 if [[ -n "$wt_path" ]] && [[ ! -d "$wt_path" ]]; then
                     _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing)"
+                    orphaned=$((orphaned + 1))
+                elif [[ "$entry_ctx" == "none" ]]; then
+                    _doctor_warn "Orphaned worktree state: $sanitized_branch (no slot or path recorded)"
                     orphaned=$((orphaned + 1))
                 fi
             done < <(list_worktree_states "$project")
@@ -248,11 +254,23 @@ cmd_doctor() {
                 [[ -z "$sanitized_branch" ]] && continue
                 local branch_name
                 branch_name=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
-                local slot
-                slot=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".slot" "0")
 
-                local port_data
-                port_data=$(calculate_worktree_ports "$branch_name" "$config_file" "$slot" 2>/dev/null)
+                # An entry claims ports as a slot-allocated worktree, as the main repo
+                # root (.ports.main), or not at all — reading a slotless entry as slot 0
+                # invents a conflict with whichever worktree actually holds slot 0.
+                local port_ctx port_data
+                port_ctx=$(_doctor_port_context "$state_f" "$sanitized_branch" "$branch_name" "$config_file")
+                case "$port_ctx" in
+                    none)
+                        continue
+                        ;;
+                    main)
+                        port_data=$(WT_MAIN_CONTEXT=1 calculate_worktree_ports "$branch_name" "$config_file" 0 2>/dev/null)
+                        ;;
+                    slot:*)
+                        port_data=$(calculate_worktree_ports "$branch_name" "$config_file" "${port_ctx#slot:}" 2>/dev/null)
+                        ;;
+                esac
 
                 while IFS=: read -r svc_name svc_port; do
                     [[ -z "$svc_name" ]] && continue
@@ -301,6 +319,46 @@ _doctor_fail() {
 _doctor_warn() {
     echo -e "  ${YELLOW}WARN${NC}  $1"
     warnings=$((warnings + 1))
+}
+
+# Classify how a state entry claims ports, so a non-slot entry is not read as slot 0.
+# Args: $1 state file, $2 sanitized branch key, $3 branch name, $4 project config file
+# Out: "slot:<n>" for a slot-allocated worktree; "main" for the main-repo-root entry,
+#      which runs on .ports.main (outside the reserved range) rather than a slot;
+#      "none" for an entry that never claimed a slot — a stub left behind by a
+#      worktree removed outside `wt delete`.
+_doctor_port_context() {
+    local state_f="$1"
+    local sanitized_branch="$2"
+    local branch_name="$3"
+    local config_file="$4"
+
+    local slot
+    slot=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".slot" "")
+    if [[ -n "$slot" ]]; then
+        echo "slot:$slot"
+        return
+    fi
+
+    # No slot recorded. `wt start` at the main repo root synthesizes its own context
+    # (WT_MAIN_CONTEXT / WT_ROOT_SLOT in commands/start.sh) and writes a services-only
+    # entry keyed by the branch checked out there — so match that branch to tell the
+    # root's own entry apart from a leftover stub.
+    local repo_path
+    repo_path=$(yaml_get "$config_file" ".repo_path" "")
+    if [[ -n "$repo_path" ]]; then
+        local expanded_repo root_branch
+        expanded_repo=$(expand_path "$repo_path")
+        if [[ -d "$expanded_repo" ]]; then
+            root_branch=$(git -C "$expanded_repo" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+            if [[ -n "$root_branch" ]] && [[ "$(sanitize_branch_name "$root_branch")" == "$sanitized_branch" ]]; then
+                echo "main"
+                return
+            fi
+        fi
+    fi
+
+    echo "none"
 }
 
 _doctor_check_cmd() {

@@ -18,6 +18,7 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/config.sh"
     source "$WT_SCRIPT_DIR/commands/list.sh"
     source "$WT_SCRIPT_DIR/commands/status.sh"
+    source "$WT_SCRIPT_DIR/commands/health.sh"
     source "$WT_SCRIPT_DIR/commands/ports.sh"
     source "$WT_SCRIPT_DIR/commands/run.sh"
     source "$WT_SCRIPT_DIR/commands/exec.sh"
@@ -597,4 +598,39 @@ hooks:
 
     [[ -f "$marker" ]]
     [[ "$(cat "$marker")" == "feature/env-check" ]]
+}
+
+# ===== health command =====
+
+@test "health: shows help with --help" {
+    run cmd_health --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"health"* ]] || [[ "$output" == *"Health"* ]]
+}
+
+@test "health: rejects an unknown option" {
+    run cmd_health --nope
+    [[ "$status" -eq 1 ]]
+}
+
+# Regression: a checkout wt does not manage has no slot and no services, so
+# probing it would mean probing another worktree's ports. Must fail, not guess.
+@test "health: exits 1 for a branch with no worktree" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    run cmd_health -p "testproj" "feature/never-created"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"Worktree not found"* ]]
+}
+
+# ===== ports: unmanaged-branch regression =====
+
+# Regression: `wt ports` used to fall back to slot 0 — a real, in-use slot — for
+# any branch it did not know, printing another worktree's ports and exiting 0.
+@test "ports: exits 1 for a branch with no worktree" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    run cmd_ports -p "testproj" "feature/never-created"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"Worktree not found"* ]]
 }

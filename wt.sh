@@ -36,6 +36,7 @@ source "${WT_SCRIPT_DIR}/commands/list.sh"
 source "${WT_SCRIPT_DIR}/commands/start.sh"
 source "${WT_SCRIPT_DIR}/commands/stop.sh"
 source "${WT_SCRIPT_DIR}/commands/status.sh"
+source "${WT_SCRIPT_DIR}/commands/health.sh"
 source "${WT_SCRIPT_DIR}/commands/attach.sh"
 source "${WT_SCRIPT_DIR}/commands/run.sh"
 source "${WT_SCRIPT_DIR}/commands/exec.sh"
@@ -68,6 +69,7 @@ ${BOLD}COMMANDS${NC}
     ${CYAN}start, up${NC}       Start services in a worktree
     ${CYAN}stop, down${NC}      Stop services in a worktree
     ${CYAN}status, st${NC}      Show worktree status
+    ${CYAN}health, hc${NC}      Live-probe services (is it actually answering?)
 
 Run ${CYAN}wt --help${NC} for all commands."
 }
@@ -109,7 +111,8 @@ ${BOLD}CORE COMMANDS${NC}
     ${CYAN}Service Management${NC}
     start, up       Start services in a worktree
     stop, down      Stop services in a worktree
-    status, st      Show worktree status
+    status, st      Show worktree status (recorded state)
+    health, hc      Live-probe services and exit 0/1 (actual state)
 
     ${CYAN}Session Management${NC}
     attach, a       Attach to tmux session
@@ -271,6 +274,9 @@ main() {
             ;;
         status|st)
             cmd_status "$@"
+            ;;
+        health|hc)
+            cmd_health "$@"
             ;;
         attach|a)
             cmd_attach "$@"

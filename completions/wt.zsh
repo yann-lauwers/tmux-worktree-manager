@@ -26,6 +26,8 @@ _wt() {
         'down:Stop services (alias)'
         'status:Show worktree status'
         'st:Show worktree status (alias)'
+        'health:Live-probe services and exit 0/1'
+        'hc:Live-probe services (alias)'
         'attach:Attach to tmux session'
         'a:Attach to tmux session (alias)'
         'run:Run a setup step'
@@ -154,6 +156,13 @@ _wt() {
                 status|st)
                     _arguments \
                         '--services[Show detailed service status]' \
+                        '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                        '(-h --help)'{-h,--help}'[Show help]' \
+                        '1:worktree:_wt_worktrees'
+                    ;;
+                health|hc)
+                    _arguments \
+                        '(-t --timeout)'{-t,--timeout}'[Seconds to wait per service]:seconds:' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:worktree:_wt_worktrees'

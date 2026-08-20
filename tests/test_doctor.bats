@@ -122,6 +122,88 @@ services: []"
     [[ "$output" == *"Orphaned"* ]] || [[ "$output" == *"WARN"* ]]
 }
 
+@test "doctor flags a slotless, pathless state entry as orphaned" {
+    local project="stubstate"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: stubstate
+repo_path: $TEST_TMPDIR
+services: []"
+
+    # The shape a manually removed worktree leaves behind: services, nothing else.
+    create_yaml_fixture "$WT_STATE_DIR/${project}.state.yaml" "worktrees:
+  feat-gone:
+    services:
+      frontend:
+        status: stopped
+        pid: null"
+
+    run cmd_doctor -p "$project" 2>&1
+    [[ "$output" == *"Orphaned worktree state: feat-gone"* ]]
+}
+
+# --- Port conflicts: a non-slot entry must not be scored as slot 0 ---
+
+@test "doctor does not read a slotless state entry as slot 0" {
+    local project="slotless"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: slotless
+repo_path: $TEST_TMPDIR
+ports:
+  reserved:
+    range: { min: 3100, max: 3299 }
+    slots: 100
+    services:
+      frontend: 0
+      backend: 1
+  dynamic:
+    range: { min: 4000, max: 5000 }
+    services: {}
+services: []"
+
+    # A real slot-0 worktree plus a leftover stub. The stub owns no ports at all,
+    # so the only claim on 3100/3101 is the worktree's.
+    create_worktree_state "$project" "feature/real" "$TEST_TMPDIR" 0
+    yq -i '.worktrees["feat-gone"].services.frontend.status = "stopped"' "$WT_STATE_DIR/${project}.state.yaml"
+
+    run cmd_doctor -p "$project" 2>&1
+    [[ "$output" != *"Duplicate port"* ]]
+    [[ "$output" == *"No port conflicts detected"* ]]
+}
+
+@test "doctor scores the main-repo-root entry on ports.main, not slot 0" {
+    local project="mainroot"
+    local repo="$TEST_TMPDIR/repo"
+
+    mkdir -p "$repo"
+    git -C "$repo" init -q -b trunk
+    git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: mainroot
+repo_path: $repo
+ports:
+  main:
+    frontend: 3000
+    backend: 3001
+  reserved:
+    range: { min: 3100, max: 3299 }
+    slots: 100
+    services:
+      frontend: 0
+      backend: 1
+  dynamic:
+    range: { min: 4000, max: 5000 }
+    services: {}
+services: []"
+
+    # `wt start` at the repo root writes a services-only entry keyed by the branch
+    # checked out there; it runs on ports.main, so it never contends for slot 0.
+    create_worktree_state "$project" "feature/slot-zero" "$TEST_TMPDIR" 0
+    yq -i '.worktrees["trunk"].services.frontend.status = "stopped"' "$WT_STATE_DIR/${project}.state.yaml"
+
+    run cmd_doctor -p "$project" 2>&1
+    [[ "$output" != *"Duplicate port"* ]]
+    # The root's own entry is live state, not a leftover.
+    [[ "$output" != *"Orphaned worktree state: trunk"* ]]
+}
+
 # --- Summary line ---
 
 @test "doctor shows summary" {

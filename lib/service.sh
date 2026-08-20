@@ -346,11 +346,17 @@ start_services_direct() {
 
         log_info "Starting $name on port $port..."
 
-        # Run in background, prefix output with service name
+        # Run in background, prefix output with service name. Direct mode has no
+        # tmux pane to capture later, so tee to a per-service file — otherwise the
+        # output exists only on this terminal and `wt logs` has nothing to read.
+        local log_file
+        log_file=$(service_log_file "$project" "$branch" "$name")
+        mkdir -p "$(dirname "$log_file")"
+        : > "$log_file"
         (
             cd "$exec_dir" || exit 1
             eval "$env_string $svc_cmd"
-        ) 2>&1 | sed -u "s/^/[${name}] /" &
+        ) 2>&1 | sed -u "s/^/[${name}] /" | tee -a "$log_file" &
         pids+=($!)
         svc_names+=("$name")
         svc_ports+=("$port")
@@ -432,6 +438,30 @@ stop_service() {
         if ! kill_port_listeners "$svc_port"; then
             kill_failed=1
             log_error "Failed to free port $svc_port for service $service_name"
+        fi
+    fi
+
+    # One service entry can supervise several servers — a monorepo task runner
+    # starting an API and a web server under a single command is the normal
+    # case. Only its own `port_key` is freed above, so every other port it
+    # occupies keeps listening while stop reports success, and the survivor
+    # then blocks the next start on a port conflict. `stop_port_keys` names the
+    # full set to free.
+    local stop_keys stop_slot stop_port
+    stop_keys=$(yq -r ".services[] | select(.name == \"$service_name\") | .stop_port_keys // [] | .[]" "$config_file" 2>/dev/null || echo "")
+    if [[ -n "$stop_keys" ]]; then
+        stop_slot=$(get_worktree_slot "$project" "$branch")
+        if [[ -n "$stop_slot" ]]; then
+            while read -r key; do
+                [[ -z "$key" ]] && continue
+                stop_port=$(get_service_port "$key" "$branch" "$config_file" "$stop_slot" "$project")
+                [[ -z "$stop_port" || "$stop_port" == "null" ]] && continue
+                [[ "$stop_port" == "$svc_port" ]] && continue
+                if ! kill_port_listeners "$stop_port"; then
+                    kill_failed=1
+                    log_error "Failed to free port $stop_port ($key) for service $service_name"
+                fi
+            done <<< "$stop_keys"
         fi
     fi
 
@@ -580,6 +610,10 @@ run_health_check() {
     local service_name="$1"
     local port="$2"
     local config_file="$3"
+    # Optional: override the configured timeout. `wt start` waits for boot and
+    # omits it; a one-shot probe passes a short value so a down service fails
+    # fast instead of blocking for the configured boot window.
+    local timeout_override="${4:-}"
 
     # Batch health check config (single yq call for all fields)
     local health_config
@@ -587,6 +621,10 @@ run_health_check() {
 
     local health_type timeout interval health_url
     IFS=$'\t' read -r health_type timeout interval health_url <<< "$health_config"
+
+    if [[ -n "$timeout_override" ]]; then
+        timeout="$timeout_override"
+    fi
 
     log_info "Running health check for $service_name (${health_type}, timeout: ${timeout}s)..."
 
@@ -604,16 +642,67 @@ run_health_check() {
             done
             ;;
         http)
-            local url="$health_url"
-            url=$(echo "$url" | envsubst 2>/dev/null || echo "$url")
+            # A probe is a url plus an optional body fragment the response must
+            # contain. A status code alone cannot identify WHICH service
+            # answered: a dev server that has taken a sibling's port serves its
+            # SPA fallback on every path, so a code-only check reports the
+            # impostor as the service it displaced, and the stack reads healthy
+            # while the real one is unreachable. `expect` closes that.
+            #
+            # `extra` probes let one service assert on more than one endpoint —
+            # a single process tree serving both an API and a web server has no
+            # other way to report that half of it is down.
+            local -a probe_urls=() probe_expects=()
+            probe_urls+=("$(echo "$health_url" | envsubst 2>/dev/null || echo "$health_url")")
+            probe_expects+=("$(yq -r ".services[] | select(.name == \"$service_name\") | .health_check.expect // \"\"" "$config_file" 2>/dev/null || echo "")")
 
-            while ! curl -sf "$url" &>/dev/null; do
+            local extra_count
+            extra_count=$(yq -r ".services[] | select(.name == \"$service_name\") | .health_check.extra // [] | length" "$config_file" 2>/dev/null || echo 0)
+            [[ "$extra_count" =~ ^[0-9]+$ ]] || extra_count=0
+
+            local i=0 eu ee
+            while [[ $i -lt $extra_count ]]; do
+                eu=$(yq -r ".services[] | select(.name == \"$service_name\") | .health_check.extra[$i].url // \"\"" "$config_file" 2>/dev/null || echo "")
+                ee=$(yq -r ".services[] | select(.name == \"$service_name\") | .health_check.extra[$i].expect // \"\"" "$config_file" 2>/dev/null || echo "")
+                probe_urls+=("$(echo "$eu" | envsubst 2>/dev/null || echo "$eu")")
+                probe_expects+=("$ee")
+                i=$((i + 1))
+            done
+
+            # --max-time bounds each attempt. Without it a socket that accepts
+            # and never responds blocks the first curl forever, so the elapsed
+            # check below is never reached — and an accept-and-hang backend is
+            # precisely what an http check exists to catch.
+            local all_ok idx body want failed_url
+            while true; do
+                all_ok=1
+                idx=0
+                failed_url=""
+                for want in "${probe_urls[@]}"; do
+                    body=$(curl -sf --max-time "$interval" "${probe_urls[$idx]}" 2>/dev/null || echo "")
+                    want="${probe_expects[$idx]}"
+                    if [[ -z "$body" ]]; then
+                        all_ok=0
+                        failed_url="${probe_urls[$idx]} (no response)"
+                    elif [[ -n "$want" && "$body" != *"$want"* ]]; then
+                        all_ok=0
+                        failed_url="${probe_urls[$idx]} (answered, but not by this service)"
+                    fi
+                    if [[ $all_ok -eq 0 ]]; then
+                        break
+                    fi
+                    idx=$((idx + 1))
+                done
+
+                if [[ $all_ok -eq 1 ]]; then
+                    break
+                fi
                 if ((elapsed >= timeout)); then
-                    log_warn "Health check timed out for $service_name"
+                    log_warn "Health check timed out for $service_name: $failed_url"
                     return 1
                 fi
                 sleep "$interval"
-                ((elapsed += interval))
+                ((elapsed += interval)) || true
             done
             ;;
         *)
@@ -624,6 +713,19 @@ run_health_check() {
 
     log_success "Health check passed for $service_name"
     return 0
+}
+
+# Path to a service's direct-mode log file.
+# Branch names contain slashes; flatten them so the path stays one level deep.
+service_log_file() {
+    local project="$1"
+    local branch="$2"
+    local service_name="$3"
+
+    local safe_branch
+    safe_branch=$(echo "$branch" | tr '/' '-')
+
+    echo "$WT_DATA_DIR/logs/${project}/${safe_branch}-${service_name}.log"
 }
 
 # Get service status
