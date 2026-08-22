@@ -411,7 +411,8 @@ smart_resolve_opener() {
 }
 
 # Find a cmux workspace already open at a path.
-# Args: $1 absolute worktree path
+# Args: $1 absolute worktree path, $2 workspace title to fall back on
+#       (default: the path's basename)
 # Out: that workspace's ref (e.g. "workspace:8"); nothing when none holds the path,
 #      when cmux or jq is absent, or when cmux answers with something unparseable.
 #      Several workspaces can hold one path, so the first in cmux's own order wins.
@@ -425,8 +426,12 @@ smart_find_cmux_workspace() {
         return 0
     fi
 
+    # Trim anything before the first `{`: a warning or deprecation line ahead of the
+    # JSON would otherwise make jq fail, and reuse would silently stop working while
+    # the command still succeeded — one duplicate workspace per invocation, forever.
     local listing
-    listing=$(cmux rpc workspace.list '{}' 2>/dev/null) || return 0
+    listing=$(cmux rpc workspace.list '{}' 2>/dev/null | sed -n '/^[[:space:]]*{/,$p') || return 0
+    [[ -n "$listing" ]] || return 0
 
     # Path first: it is the stronger claim when it holds. current_directory tracks
     # where the terminal actually is, so a workspace whose shell cd'd into a
@@ -439,8 +444,17 @@ smart_find_cmux_workspace() {
         return 0
     fi
 
-    jq -r --arg n "$name" --arg p "$path" \
-        '.workspaces[]? | select(.custom_title == $n and (.current_directory | startswith($p))) | .ref' \
+    # `// ""` before startswith: jq throws on a null cwd, and `and` does not shield a
+    # same-titled row — one such entry aborts the whole program, so the real match
+    # below it is never reached. Exactly when a duplicate already exists.
+    #
+    # The trailing slash gives the prefix a path boundary: without it /wt/nex-334
+    # matches a workspace sitting at /wt/nex-3345.
+    jq -r --arg n "$name" --arg p "$path" --arg pre "$path/" \
+        '.workspaces[]?
+         | select(.custom_title == $n)
+         | select(((.current_directory // "") == $p) or ((.current_directory // "") | startswith($pre)))
+         | .ref' \
         <<< "$listing" 2>/dev/null | head -1
 }
 

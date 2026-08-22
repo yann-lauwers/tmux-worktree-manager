@@ -495,3 +495,69 @@ MOCK
     run smart_find_cmux_workspace "/wt/nex-3345"
     [[ "$output" == *"jq"* ]]
 }
+
+@test "smart_find_cmux_workspace reuses a workspace despite a preamble before the JSON" {
+    load_lib "smart"
+    CMUX_LOG="$TEST_TMPDIR/cmux_calls.log"; export CMUX_LOG
+    cat > "$TEST_TMPDIR/bin/cmux" <<'MOCK'
+#!/bin/bash
+echo "$@" >> "$CMUX_LOG"
+if [[ "$1" == "rpc" ]]; then
+  echo "warning: 'workspace.list' is a legacy alias"
+  echo '{"workspaces":[{"ref":"workspace:8","custom_title":"nex-3345","current_directory":"/wt/nex-3345"}]}'
+fi
+exit 0
+MOCK
+    chmod +x "$TEST_TMPDIR/bin/cmux"
+
+    run smart_find_cmux_workspace "/wt/nex-3345"
+    [[ "$output" == "workspace:8" ]]
+}
+
+# --- create_session must not reference anything it does not own ---------------
+# The lane guard was once pasted into create_session, which has no $workdir and
+# no $window. `wt.sh` runs under `set -u`, so every caller of create_session —
+# `wt create`, `wt start`, `wt attach` — died on an unbound variable. The suite
+# had no case for this function at all, so 332 green tests said nothing.
+
+@test "create_session runs under set -u without an unbound variable" {
+    _mock_tmux ""
+
+    run bash -u -c "
+        source '$WT_SCRIPT_DIR/lib/utils.sh'
+        source '$WT_SCRIPT_DIR/lib/config.sh'
+        source '$WT_SCRIPT_DIR/lib/tmux.sh'
+        create_session 'some-window' '$TEST_TMPDIR' '/dev/null'
+    "
+    [[ "$output" != *"unbound variable"* ]]
+    [[ "$status" -ne 127 ]]
+}
+
+@test "create_session references no variable outside its own parameters" {
+    # A guard copied in from a sibling is the failure this pins. Read the function
+    # body and confirm it names nothing it never declared.
+    local body
+    body=$(sed -n '/^create_session()/,/^}/p' "$WT_SCRIPT_DIR/lib/tmux.sh")
+    [[ -n "$body" ]]
+    [[ "$body" != *'$workdir'* ]]
+    [[ "$body" != *'${window}'* ]]
+}
+
+@test "smart_find_cmux_workspace survives a same-titled workspace with a null cwd" {
+    load_lib "smart"
+    # jq's startswith throws on null, and `and` does not shield a same-titled row —
+    # the whole program aborts and the real match below it is never reached.
+    _mock_cmux '{"workspaces":[{"ref":"workspace:1","custom_title":"nex-3345","current_directory":null},{"ref":"workspace:2","custom_title":"nex-3345","current_directory":"/wt/nex-3345/apps"}]}'
+
+    run smart_find_cmux_workspace "/wt/nex-3345"
+    [[ "$output" == "workspace:2" ]]
+}
+
+@test "smart_find_cmux_workspace does not match a sibling path by prefix" {
+    load_lib "smart"
+    # /wt/nex-334 must not match a workspace sitting at /wt/nex-3345.
+    _mock_cmux '{"workspaces":[{"ref":"workspace:7","custom_title":"nex-334","current_directory":"/wt/nex-3345"}]}'
+
+    run smart_find_cmux_workspace "/wt/nex-334"
+    [[ -z "$output" ]]
+}

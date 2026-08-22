@@ -71,11 +71,6 @@ create_session() {
     session=$(get_tmux_session_name "$config_file")
 
     # Create session if it doesn't exist
-    if [[ ! -d "$workdir" ]]; then
-        log_error "No such directory for lane ${window}: $workdir"
-        return 1
-    fi
-
     if ! session_exists "$session"; then
         log_info "Creating tmux session: $session"
         if ! tmux new-session -d -s "$session" -c "$root_dir" -n "$window_name"; then
