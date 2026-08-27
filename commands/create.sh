@@ -177,7 +177,7 @@ cmd_create() {
     fi
 
     if [[ "$no_setup" -eq 1 ]]; then
-        log_info "Skipping setup steps (--no-setup)"
+        log_info "Skipping setup steps (--no-setup), except unskippable ones"
     fi
 
     # Delegate to core worker
@@ -197,7 +197,7 @@ Aliases: wt c
 
 Options:
   --from <branch>    Base branch (default: project base_branch)
-  --no-setup         Skip running setup steps
+  --no-setup         Skip setup steps, except those marked `always: true`
   --skip-groups <g>  Skip setup groups (comma-separated)
   --no-db            Skip ephemeral DB setup
   --db               Force ephemeral DB setup (no prompt)
@@ -335,7 +335,11 @@ _cmd_create_core() {
     # Export global env vars
     export_env_vars "$PROJECT_CONFIG_FILE"
 
-    # Run setup steps
+    # Run setup steps. --no-setup still runs the steps a config marked `always: true`:
+    # those produce what a worktree IS rather than what it has installed, and a checkout
+    # missing one is broken rather than merely bare. Canon linking is the case that
+    # earned it — a lane created with --no-setup came up with no CLAUDE.md, no .claude/
+    # and no CONTEXT-MAP.md, and nothing reported it.
     local setup_failed=0
     if [[ "$no_setup" -eq 0 ]]; then
         echo ""
@@ -344,7 +348,11 @@ _cmd_create_core() {
             setup_failed=1
         fi
     else
-        log_info "Skipping setup (--no-setup)"
+        log_info "Skipping setup (--no-setup) — running unskippable steps only"
+        if ! execute_setup "$wt_path" "$PROJECT_CONFIG_FILE" "" "$skip_groups" 1; then
+            log_warn "Unskippable setup steps completed with errors"
+            setup_failed=1
+        fi
     fi
 
     # Create tmux window in the main session

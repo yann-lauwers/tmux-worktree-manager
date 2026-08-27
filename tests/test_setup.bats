@@ -36,6 +36,91 @@ teardown() {
     [[ -f "$WORKTREE_PATH/step2.done" ]]
 }
 
+@test "execute_setup only_always runs a step marked always and skips the rest" {
+    create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup:
+  - name: canon
+    always: true
+    command: touch canon.done
+    working_dir: .
+  - name: heavy
+    command: touch heavy.done
+    working_dir: .'
+
+    execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml" "" "" 1 2>/dev/null
+    [[ -f "$WORKTREE_PATH/canon.done" ]]
+    [[ ! -f "$WORKTREE_PATH/heavy.done" ]]
+}
+
+@test "execute_setup only_always still honors skip_groups" {
+    create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup:
+  - name: canon
+    always: true
+    command: touch canon.done
+    working_dir: .
+  - name: canon-db
+    always: true
+    group: db
+    command: touch canon-db.done
+    working_dir: .
+  - name: heavy
+    command: touch heavy.done
+    working_dir: .'
+
+    execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml" "" "db" 1 2>/dev/null
+    [[ -f "$WORKTREE_PATH/canon.done" ]]
+    [[ ! -f "$WORKTREE_PATH/canon-db.done" ]]
+    # The plain step is what makes this kill the mutant: with only_always ignored it runs.
+    [[ ! -f "$WORKTREE_PATH/heavy.done" ]]
+}
+
+@test "execute_setup only_always accepts True and yes as always" {
+    create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup:
+  - name: cap
+    always: True
+    command: touch cap.done
+    working_dir: .
+  - name: yes-spelling
+    always: yes
+    command: touch yes.done
+    working_dir: .'
+
+    execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml" "" "" 1 2>/dev/null
+    [[ -f "$WORKTREE_PATH/cap.done" ]]
+    [[ -f "$WORKTREE_PATH/yes.done" ]]
+}
+
+@test "execute_setup only_always fails when an always step could not run" {
+    create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup:
+  - name: heavy
+    command: touch heavy.done
+    working_dir: .
+  - name: canon
+    always: true
+    depends_on: [heavy]
+    command: touch canon.done
+    working_dir: .'
+
+    run execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml" "" "" 1
+    # An unskippable step that did not run must not report success.
+    [[ "$status" -eq 1 ]]
+    [[ ! -f "$WORKTREE_PATH/canon.done" ]]
+}
+
+@test "execute_setup without only_always runs steps marked always alongside the rest" {
+    create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup:
+  - name: canon
+    always: true
+    command: touch canon.done
+    working_dir: .
+  - name: heavy
+    command: touch heavy.done
+    working_dir: .'
+
+    execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml" 2>/dev/null
+    [[ -f "$WORKTREE_PATH/canon.done" ]]
+    [[ -f "$WORKTREE_PATH/heavy.done" ]]
+}
+
 @test "execute_setup returns 0 with no steps" {
     create_yaml_fixture "$TEST_TMPDIR/config.yaml" 'setup: []'
     run execute_setup "$WORKTREE_PATH" "$TEST_TMPDIR/config.yaml"

@@ -118,7 +118,7 @@ _wt() {
                 create|c)
                     _arguments \
                         '--from[Base branch to create from]:branch:_wt_branches' \
-                        '--no-setup[Skip running setup steps]' \
+                        '--no-setup[Skip setup steps, except those marked always: true]' \
                         '--skip-groups[Skip setup groups (comma-separated)]:groups:' \
                         '--no-db[Skip ephemeral DB setup]' \
                         '--db[Force ephemeral DB setup (no prompt)]' \

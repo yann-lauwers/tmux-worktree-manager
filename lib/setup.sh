@@ -77,14 +77,38 @@ _finish_progress() {
     printf "\n\n" >&2
 }
 
+# Report whether setup step <index> declares `always: true`.
+# Args: $1 config file, $2 step index
+# Side: none — exit status is the answer
+_step_is_always() {
+    local v
+    v=$(get_setup_step "$1" "$2" "always")
+    # Accept the spellings yaml readers hand back for a true value. `always: True` and
+    # `always: yes` reaching here as false would drop a step's canon in exactly the
+    # silent way this flag exists to prevent, so a typo must not decide it.
+    #
+    # Matched with `case`, not `${v,,}`: this runs under the system bash, which on macOS
+    # is 3.2 and has no case-conversion expansion. `${v,,}` parses fine and dies at RUNTIME
+    # with "bad substitution", which took out canon linking on every create while the bats
+    # suite — running under a newer bash — stayed green.
+    case "$v" in
+        [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | 1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Execute all setup steps for a worktree
-# Usage: execute_setup <worktree_path> <config_file> [step_filter] [skip_groups]
-#   skip_groups: comma-separated list of groups to skip (e.g. "db,test")
+# Usage: execute_setup <worktree_path> <config_file> [step_filter] [skip_groups] [only_always]
+# Args: $1 worktree path, $2 project config, $3 run only this step name,
+#       $4 comma-separated groups to skip (e.g. "db,test"),
+#       $5 when 1, run ONLY steps declaring `always: true`
+# Side: runs each step's command in the worktree; writes a progress display to stderr
 execute_setup() {
     local worktree_path="$1"
     local config_file="$2"
     local step_filter="${3:-}"  # Optional: run only specific step
     local skip_groups="${4:-}"  # Optional: comma-separated groups to skip
+    local only_always="${5:-0}" # Optional: 1 = run only steps marked `always: true`
 
     local step_count
     step_count=$(get_setup_steps "$config_file")
@@ -94,10 +118,14 @@ execute_setup() {
         return 0
     fi
 
-    # Count effective steps (excluding skipped groups)
+    # Count effective steps (excluding skipped groups and, under only_always, every
+    # step that has not declared itself unskippable)
     local effective_count=0
-    if [[ -n "$skip_groups" ]]; then
+    if [[ -n "$skip_groups" ]] || [[ "$only_always" == "1" ]]; then
         for ((i = 0; i < step_count; i++)); do
+            if [[ "$only_always" == "1" ]] && ! _step_is_always "$config_file" "$i"; then
+                continue
+            fi
             local grp
             grp=$(get_setup_step "$config_file" "$i" "group")
             if [[ -z "$grp" || "$grp" == "null" ]] || ! _group_in_list "$grp" "$skip_groups"; then
@@ -148,6 +176,13 @@ execute_setup() {
 
         local condition
         condition=$(get_setup_step "$config_file" "$i" "condition")
+
+        # Under only_always, a step that has not declared `always: true` does not run.
+        # This is what makes --no-setup unable to drop a step a worktree is broken
+        # without — canon linking being the case it was added for.
+        if [[ "$only_always" == "1" ]] && ! _step_is_always "$config_file" "$i"; then
+            continue
+        fi
 
         # Skip if group is in skip list
         local step_group
@@ -279,6 +314,16 @@ execute_setup() {
 
     # Summary
     log_info "Setup: ${#completed[@]} completed${skipped:+, ${#skipped[@]} skipped}${failed:+, ${#failed[@]} failed}"
+
+    # A step declared unskippable that did NOT run is a failure, not a skip. Under
+    # only_always no ordinary step executes, so an `always` step carrying `depends_on`
+    # finds its dependency unmet and lands in `skipped` — reporting success over a
+    # worktree that never got the thing the flag exists to guarantee. `always: true`
+    # has to mean it, or it is worth nothing.
+    if [[ "$only_always" == "1" ]] && [[ ${#skipped[@]} -gt 0 ]]; then
+        log_error "Unskippable step(s) did not run: ${skipped[*]} — a step marked 'always: true' cannot depend on a skippable one"
+        return 1
+    fi
 
     if [[ ${#failed[@]} -gt 0 ]]; then
         return 1

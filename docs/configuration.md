@@ -144,6 +144,7 @@ The `setup` section defines steps executed during `wt create`. Steps run sequent
 | `depends_on` | array | No | `[]` | List of step names that must complete first |
 | `on_failure` | string | No | `abort` | Action on failure: `abort`, `continue`, or `retry` |
 | `condition` | string | No | - | Shell condition; step skipped if exits non-zero |
+| `always` | bool | No | `false` | Step runs even under `--no-setup`; `--skip-groups` still applies |
 | `env` | object | No | `{}` | Step-specific environment variables |
 
 #### on_failure Options
@@ -610,7 +611,8 @@ Checks performed:
 
 1. **Port conflicts**: Use `wt ports <branch> --check` to verify ports before starting
 2. **Re-run setup**: Use `wt run <branch> <step-name>` to re-run a specific setup step
-3. **Skip setup**: Use `wt create <branch> --no-setup` to create without running setup
+3. **Skip setup**: Use `wt create <branch> --no-setup` to create without running setup —
+   except steps marked `always: true`, which run regardless (see the setup-step fields above)
 4. **Debug**: Set `WT_DEBUG=1` for verbose logging
 5. **Submodules**: Reference parent repo with `../../` in setup commands (worktrees are in `.worktrees/<branch>/`)
 6. **Diagnose issues**: Run `wt doctor` to check config validity, state consistency, and tmux health
