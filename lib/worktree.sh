@@ -174,7 +174,7 @@ create_worktree() {
             else
                 # Create from current branch
                 local current
-                current=$(current_branch)
+                current=$(current_branch "$repo_root")
                 if [[ "$current" == "HEAD" ]]; then
                     log_error "Repository is in detached HEAD state." >&2
                     log_error "Specify a base branch with --from <branch>, e.g.: wt create $branch --from main" >&2

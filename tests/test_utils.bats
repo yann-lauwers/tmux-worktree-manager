@@ -289,3 +289,43 @@ teardown() {
     [[ "$output" == *"TEST HEADER"* ]]
     [[ "$output" == *"---"* ]]
 }
+
+# --- current_branch ---
+
+# Build a repo on `main`; echo its path.
+_mk_repo() {
+    local dir="$1"
+    mkdir -p "$dir"
+    git -C "$dir" init -b main >/dev/null 2>&1
+    git -C "$dir" config user.email "test@test.com"
+    git -C "$dir" config user.name "Test"
+    touch "$dir/f"
+    git -C "$dir" add f
+    git -C "$dir" commit -m "initial" >/dev/null 2>&1
+}
+
+# The default: no repo named, answer about the working directory. `wt start` / `wt stop`
+# rely on this to mean "the branch I am standing in".
+@test "current_branch reads the working directory when no repo is named" {
+    _mk_repo "$TEST_TMPDIR/plain"
+    cd "$TEST_TMPDIR/plain"
+
+    run current_branch
+    [ "$output" = "main" ]
+}
+
+# The bug this pins: create_worktree holds a repo_root and used to ask about cwd instead.
+# Under CI, actions/checkout leaves cwd detached, so every create_worktree test tripped the
+# detached-HEAD guard at lib/worktree.sh — on macOS it passed only because the developer's
+# cwd happened to sit on a branch.
+@test "current_branch answers about the repo it is given, not the working directory" {
+    _mk_repo "$TEST_TMPDIR/target"
+    _mk_repo "$TEST_TMPDIR/detached"
+    git -C "$TEST_TMPDIR/detached" checkout --detach HEAD >/dev/null 2>&1
+
+    cd "$TEST_TMPDIR/detached"
+    [ "$(current_branch)" = "HEAD" ]
+
+    run current_branch "$TEST_TMPDIR/target"
+    [ "$output" = "main" ]
+}
