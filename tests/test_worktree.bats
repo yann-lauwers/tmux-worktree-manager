@@ -186,3 +186,82 @@ teardown() {
     run prune_worktrees "$TEST_REPO"
     [[ "$status" -eq 0 ]]
 }
+
+# --- worktree_occupant ---
+
+# The collision message is what a parallel session reads before deciding whether it may write
+# into a checkout. It degrades rather than fails: a machine without cmux still gets the path.
+
+@test "worktree_occupant is silent when cmux is unavailable" {
+    PATH="/usr/bin:/bin" run worktree_occupant "/some/worktree"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "worktree_occupant is silent for an empty path" {
+    run worktree_occupant ""
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "worktree_occupant names the workspace whose cwd is the worktree" {
+    local fake="$TEST_TMPDIR/bin"
+    mkdir -p "$fake"
+    cat > "$fake/cmux" <<'CMUX'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"workspaces":[{"current_directory":"/w/feature","has_custom_title":true,"custom_title":"seat-a","id":"AAAA1111-x"}]}
+JSON
+CMUX
+    chmod +x "$fake/cmux"
+
+    PATH="$fake:$PATH" run worktree_occupant "/w/feature"
+    [ "$status" -eq 0 ]
+    [ "$output" = "seat-a" ]
+}
+
+@test "worktree_occupant matches a workspace sitting in a subdirectory" {
+    local fake="$TEST_TMPDIR/bin"
+    mkdir -p "$fake"
+    cat > "$fake/cmux" <<'CMUX'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"workspaces":[{"current_directory":"/w/feature/src/deep","has_custom_title":true,"custom_title":"seat-b","id":"BBBB2222-x"}]}
+JSON
+CMUX
+    chmod +x "$fake/cmux"
+
+    PATH="$fake:$PATH" run worktree_occupant "/w/feature"
+    [ "$output" = "seat-b" ]
+}
+
+@test "worktree_occupant falls back to a short id when the workspace is untitled" {
+    local fake="$TEST_TMPDIR/bin"
+    mkdir -p "$fake"
+    cat > "$fake/cmux" <<'CMUX'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"workspaces":[{"current_directory":"/w/feature","has_custom_title":false,"custom_title":null,"id":"CCCC3333-dddd"}]}
+JSON
+CMUX
+    chmod +x "$fake/cmux"
+
+    PATH="$fake:$PATH" run worktree_occupant "/w/feature"
+    [ "$output" = "CCCC3333" ]
+}
+
+# The half that proves it discriminates: a neighbouring path is not a match.
+@test "worktree_occupant does not match a sibling worktree by prefix" {
+    local fake="$TEST_TMPDIR/bin"
+    mkdir -p "$fake"
+    cat > "$fake/cmux" <<'CMUX'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"workspaces":[{"current_directory":"/w/feature-two","has_custom_title":true,"custom_title":"seat-c","id":"DDDD4444-x"}]}
+JSON
+CMUX
+    chmod +x "$fake/cmux"
+
+    PATH="$fake:$PATH" run worktree_occupant "/w/feature"
+    [ -z "$output" ]
+}
