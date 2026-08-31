@@ -75,6 +75,27 @@ worktree_path() {
     echo "$candidate"
 }
 
+# Name the cmux workspace standing in a worktree, when one is.
+# A worktree nobody sits in reads as free to every session that arrives later, including one
+# picking up the same branch — so a collision has to say who is already there, not just that
+# the directory exists. Degrades to silence rather than failing: cmux and jq are how this
+# machine answers the question, not a dependency of the CLI.
+# Args: $1 worktree path
+# Out: a human-readable workspace label, or nothing when unoccupied or unanswerable
+worktree_occupant() {
+    local path="$1"
+
+    [[ -n "$path" ]] || return 0
+    command -v cmux &>/dev/null || return 0
+    command -v jq &>/dev/null || return 0
+
+    cmux workspace list --json 2>/dev/null | jq -r --arg p "$path" '
+        .workspaces[]?
+        | select(.current_directory == $p or (.current_directory | startswith($p + "/")))
+        | if (.has_custom_title // false) then .custom_title else (.id | .[0:8]) end
+    ' 2>/dev/null | head -1
+}
+
 # Check if a worktree exists for a branch
 worktree_exists() {
     local branch="$1"

@@ -246,8 +246,19 @@ _cmd_create_core() {
     fi
 
     # Check if worktree already exists
+    #
+    # The bare "already exists" this used to print reads as stale state, and a session that
+    # reads it that way writes into a checkout somebody else is standing in. Naming the path
+    # and the occupant turns it into what it is: a collision with another seat.
     if worktree_exists "$branch" "$repo_root"; then
-        die "Worktree already exists for branch: $branch"
+        local existing_path occupant
+        existing_path=$(worktree_path "$branch" "$repo_root")
+        occupant=$(worktree_occupant "$existing_path")
+
+        if [[ -n "$occupant" ]]; then
+            die "Worktree for '$branch' already exists at $existing_path, held by cmux workspace '$occupant'. Tell them before writing there, or join with: wt open $branch"
+        fi
+        die "Worktree for '$branch' already exists at $existing_path (nobody sitting in it). Join with: wt open $branch"
     fi
 
     # Run pre_create hook if defined
