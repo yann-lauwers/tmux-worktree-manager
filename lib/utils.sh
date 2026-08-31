@@ -99,9 +99,21 @@ git_root() {
     git rev-parse --show-toplevel 2>/dev/null
 }
 
-# Get current branch name
+# Get the current branch name of a repository.
+# Defaults to the working directory when no repo is named, which is what `wt start` and
+# `wt stop` want — they ask "which branch am I standing in". A caller holding a specific
+# repo passes it: reading cwd instead answers about the wrong repository, and returns
+# "HEAD" whenever cwd happens to be detached.
+# Args: $1 repo root (optional; defaults to cwd)
+# Out: branch name, or "HEAD" when that repo is in detached HEAD state
 current_branch() {
-    git rev-parse --abbrev-ref HEAD 2>/dev/null
+    local repo_root="${1:-}"
+
+    if [[ -n "$repo_root" ]]; then
+        git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null
+    else
+        git rev-parse --abbrev-ref HEAD 2>/dev/null
+    fi
 }
 
 # Check if a branch exists locally
