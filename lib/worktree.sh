@@ -176,7 +176,7 @@ create_worktree() {
     local git_exit_code
 
     # Check if branch already exists
-    if branch_exists "$branch"; then
+    if branch_exists "$branch" "$repo_root"; then
         log_info "Branch '$branch' exists, creating worktree..." >&2
         git_output=$(git -C "$repo_root" worktree add "$wt_path" "$branch" 2>&1)
         git_exit_code=$?
@@ -188,7 +188,7 @@ create_worktree() {
             git_exit_code=$?
         else
             # Check if remote branch exists
-            if remote_branch_exists "$branch"; then
+            if remote_branch_exists "$branch" origin "$repo_root"; then
                 log_info "Tracking remote branch '$branch'..." >&2
                 git_output=$(git -C "$repo_root" worktree add --track -b "$branch" "$wt_path" "origin/$branch" 2>&1)
                 git_exit_code=$?
@@ -277,9 +277,10 @@ remove_worktree() {
         log_warn "Worktree force-removed after retry: $wt_path"
     fi
 
-    # Optionally delete the branch
+    # Optionally delete the branch. Resolve against the repo, never the cwd: `wt delete`
+    # runs from outside the repo, or from inside the worktree that was just removed.
     if [[ "$keep_branch" == "0" ]]; then
-        if branch_exists "$branch"; then
+        if branch_exists "$branch" "$repo_root"; then
             log_info "Deleting branch: $branch"
             if [[ "$force" == "1" ]]; then
                 git -C "$repo_root" branch -D "$branch" 2>/dev/null || true

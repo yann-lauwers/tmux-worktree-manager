@@ -117,16 +117,21 @@ current_branch() {
 }
 
 # Check if a branch exists locally
+# Args: $1 branch, $2 repo root (optional; defaults to the caller's cwd, which is wrong
+#       whenever the caller stands outside the repo or inside a worktree being removed)
 branch_exists() {
     local branch="$1"
-    git show-ref --verify --quiet "refs/heads/$branch"
+    local repo_root="${2:-.}"
+    git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"
 }
 
 # Check if a branch exists on remote
+# Args: $1 branch, $2 remote (default origin), $3 repo root (optional; defaults to cwd)
 remote_branch_exists() {
     local branch="$1"
     local remote="${2:-origin}"
-    git ls-remote --exit-code --heads "$remote" "$branch" &>/dev/null
+    local repo_root="${3:-.}"
+    git -C "$repo_root" ls-remote --exit-code --heads "$remote" "$branch" &>/dev/null
 }
 
 # Confirm action with user

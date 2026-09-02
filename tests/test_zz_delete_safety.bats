@@ -146,6 +146,33 @@ _commit_in() {
     ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/unmerged-force"  # -D dropped it
 }
 
+@test "remove_worktree deletes the branch when invoked from outside the repo" {
+    local wt_path
+    wt_path=$(create_worktree "feat/from-outside" "" "$TEST_REPO" 2>/dev/null)
+    # Branch tip == main: clean and merged, so -d deletes it wherever git is asked from.
+
+    # The cwd is NOT a git repo. Before the fix, branch_exists ran `git show-ref` here,
+    # failed with "not a git repository", and the branch survived while the caller
+    # reported it deleted.
+    cd "$TEST_TMPDIR"
+    remove_worktree "feat/from-outside" 0 0 "$TEST_REPO" >/dev/null 2>&1
+
+    ! worktree_exists "feat/from-outside" "$TEST_REPO"
+    ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/from-outside"  # branch gone
+}
+
+@test "cmd_delete reports the branch deleted only when it is gone, from outside the repo" {
+    _write_config "outside"
+    local wt_path
+    wt_path=$(create_worktree "feat/outside-cmd" "" "$TEST_REPO" 2>/dev/null)
+
+    cd "$TEST_TMPDIR"
+    run cmd_delete "feat/outside-cmd" -f -p outside
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"branch deleted"* ]]
+    ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/outside-cmd"
+}
+
 # ── SHARP EDGE: the bulk (picker/prune) path is force-by-default ──────────────
 
 @test "SHARP EDGE: _delete_batch force-deletes a dirty worktree — no guard on the bulk path" {
