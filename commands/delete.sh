@@ -152,7 +152,7 @@ cmd_delete() {
     local branch_deleted=0
     if [[ "$keep_branch" == "1" ]]; then
         log_info "Branch kept: $branch"
-    elif ! branch_exists "$branch"; then
+    elif ! branch_exists "$branch" "$repo_root"; then
         branch_deleted=1
     fi
 
