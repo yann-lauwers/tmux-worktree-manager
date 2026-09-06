@@ -142,6 +142,55 @@ get_worktree_branch() {
     '
 }
 
+# Resolve a base branch to the freshest ref that is safe to branch from.
+# Usage: _freshest_base_ref <base_branch> <repo_root>
+# Outputs: the ref to branch from — `origin/<base>` when the local ref is
+#          strictly behind it, otherwise <base> unchanged
+# All log messages go to stderr
+#
+# Best-effort by design: no network failure, missing remote, or absent
+# remote-tracking ref may fail a create, so every probe falls back to the
+# caller's own ref.
+_freshest_base_ref() {
+    local base="$1"
+    local repo_root="${2:-$(git_root)}"
+
+    # A base that is not a local branch is already whatever the caller meant
+    # (a tag, a sha, a remote ref) — leave it alone.
+    git -C "$repo_root" show-ref --verify --quiet "refs/heads/$base" 2>/dev/null || {
+        printf '%s' "$base"
+        return 0
+    }
+
+    # Refresh this one ref if the network allows; a failure is not an error.
+    git -C "$repo_root" fetch --quiet origin "$base" 2>/dev/null || true
+
+    git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$base" 2>/dev/null || {
+        printf '%s' "$base"
+        return 0
+    }
+
+    local counts ahead behind
+    counts=$(git -C "$repo_root" rev-list --left-right --count "$base...origin/$base" 2>/dev/null) || {
+        printf '%s' "$base"
+        return 0
+    }
+    ahead=${counts%%[[:space:]]*}
+    behind=${counts##*[[:space:]]}
+
+    if [[ "$ahead" == "0" ]] && [[ "$behind" != "0" ]]; then
+        log_info "Base '$base' is $behind commit(s) behind origin — branching from origin/$base" >&2
+        printf '%s' "origin/$base"
+        return 0
+    fi
+
+    if [[ "$ahead" != "0" ]] && [[ "$behind" != "0" ]]; then
+        log_warn "Base '$base' has diverged from origin/$base ($ahead ahead, $behind behind) — branching from the local ref" >&2
+    fi
+
+    printf '%s' "$base"
+}
+
 # Create a new worktree
 # Usage: create_worktree <branch> [base_branch] [repo_root]
 # Outputs: the worktree path on success (to stdout)
@@ -174,6 +223,24 @@ create_worktree() {
 
     local git_output
     local git_exit_code
+
+    # Prefer the remote's tip of the base branch over a stale local ref.
+    #
+    # `git worktree add -b <new> <path> <base>` resolves <base> as an ordinary
+    # local ref. That is correct for a branch this checkout tracks and pulls —
+    # the project base_branch, typically — and wrong for one it never checks
+    # out. A long-lived integration branch that only ever receives merges on
+    # the forge is the case: the local ref stays pinned at whatever commit it
+    # held when it was first created here, so every worktree cut from it starts
+    # from a base that is silently days behind, missing both the code and the
+    # decision records merged since.
+    #
+    # Only a local ref strictly BEHIND its remote is redirected. Local commits
+    # on the base are somebody's deliberate work, so an ahead-or-diverged local
+    # ref is used as-is and the divergence is reported rather than resolved.
+    if [[ -n "$base_branch" ]] && [[ "$base_branch" != origin/* ]]; then
+        base_branch=$(_freshest_base_ref "$base_branch" "$repo_root")
+    fi
 
     # Check if branch already exists
     if branch_exists "$branch" "$repo_root"; then
