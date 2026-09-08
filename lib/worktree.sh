@@ -221,6 +221,23 @@ create_worktree() {
         fi
     fi
 
+    # Link the worktree to its repo with RELATIVE paths.
+    #
+    # Both sides of a worktree link are absolute by default: the worktree's `.git`
+    # file names the repo, and `.git/worktrees/<id>/gitdir` names the worktree back.
+    # Rename or move either tree and both pointers rot — and only one direction is
+    # loud about it. `git worktree list` keeps listing the worktree from the repo
+    # side while `git status` inside it answers "not a git repository", so the
+    # breakage reads as fine from wherever you happen to be standing.
+    #
+    # Relative linking survives any move that preserves the geometry between the
+    # two trees. Requires git 2.48+; older git refuses the repo outright via the
+    # `extensions.relativeWorktrees` marker this sets, which is why it is applied
+    # per repo at create time rather than globally.
+    if git -C "$repo_root" config worktree.useRelativePaths true 2>/dev/null; then
+        log_debug "worktree.useRelativePaths enabled for $repo_root"
+    fi
+
     local git_output
     local git_exit_code
 
