@@ -90,6 +90,22 @@ working tree, and that carries costs no configuration removes:
   Docker build context rooted at the project. `rg` and `fd` skip dot-prefixed
   directories by default and so escape this; `grep -r` and `find` do not.
 
+- Editors do not register it as its own repository. VS Code's git extension scans
+  workspace folders for repositories at `git.repositoryScanMaxDepth`, which
+  **defaults to 1** — and a worktree at `<repo>/.worktrees/x` is two levels down,
+  so it is never opened as a repository and its files are treated as part of the
+  parent. Verified against the shipped extension's own `package.json`, not a doc
+  page: VS Code documents worktrees but documents no placement at all.
+
+- `.gitignore` does not reduce what the file watcher watches. Stated by a VS Code
+  team member on [microsoft/vscode#102829](https://github.com/microsoft/vscode/issues/102829),
+  which is closed and labelled `*as-designed`: *"`.gitignore` is not used for
+  filewatching either. You want `files.watcherExclude`."* The request to change
+  that ([#62725](https://github.com/microsoft/vscode/issues/62725)) has been open
+  since 2018 with no substantive maintainer reply. Note this is an issue comment,
+  not documentation — no settings description mentions the watcher and
+  `.gitignore` together.
+
 - JetBrains states it outright: *"it is not recommended to create a worktree
   inside the directory of your current project… IntelliJ IDEA misidentifies such
   projects as multi-root projects, which breaks the worktree integration."*
