@@ -113,6 +113,10 @@ working tree, and that carries costs no configuration removes:
 A central tree per project (`~/worktrees/<project>/<branch>`) is what this repo's
 own configs use, and matches what `gwq` and Cursor default to.
 
+The full argument, including what that choice costs and the two options rejected,
+is `docs/adr/0001-worktrees-live-outside-the-checkout.md`. Read it before changing
+`worktree_dir` or the fallback in `worktrees_dir()`.
+
 ### Worktree links and moving trees
 
 `wt create` sets `worktree.useRelativePaths=true` on the repo, so both sides of

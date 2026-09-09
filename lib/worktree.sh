@@ -6,6 +6,11 @@ WT_DIR_NAME=".worktrees"
 
 # Get worktrees directory path
 # Uses PROJECT_WORKTREE_DIR (from project config) when set, otherwise falls back to $repo/.worktrees
+#
+# That fallback nests worktrees inside the checkout, which docs/adr/0001 argues
+# against and every project config here overrides. It stays because changing a
+# default silently relocates the worktrees of any project that never set the key;
+# `wt doctor` is what surfaces a project still on it.
 worktrees_dir() {
     local repo_root="${1:-$(git_root)}"
     if [[ -n "${PROJECT_WORKTREE_DIR:-}" ]]; then
