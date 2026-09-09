@@ -210,7 +210,13 @@ cmd_doctor() {
 
         echo ""
 
-        # --- 4. Tmux health ---
+        # --- 4. Worktree links ---
+        echo -e "${BOLD}Worktree Links${NC}"
+        _doctor_check_links "$(expand_path "$(yaml_get "$config_file" ".repo_path" "")")"
+
+        echo ""
+
+        # --- 5. Tmux health ---
         echo -e "${BOLD}Tmux Health${NC}"
 
         if command_exists tmux; then
@@ -359,6 +365,73 @@ _doctor_port_context() {
     fi
 
     echo "none"
+}
+
+# Report whether every linked worktree survives a move of either tree.
+#
+# A worktree is linked by two files that name each other: the worktree's `.git`
+# names the repo, and `.git/worktrees/<id>/gitdir` names the worktree back. Both
+# are absolute unless worktree.useRelativePaths is set, so renaming or moving
+# either tree rots them — and the rot is one-directional. `git worktree list`
+# keeps listing the worktree from the repo side while `git status` inside it
+# answers "not a git repository", so nothing surfaces until someone happens to
+# stand in the worktree. That is the failure this check exists to make visible.
+#
+# Args: $1 repo path (the main checkout)
+# Side: prints pass/warn/fail lines; mutates nothing — every remedy is a command
+#       the operator runs, since repairing a link is not a diagnostic's job
+_doctor_check_links() {
+    local repo_path="$1"
+
+    if [[ -z "$repo_path" ]] || [[ ! -d "$repo_path" ]]; then
+        _doctor_warn "No repo_path to check links against"
+        return
+    fi
+
+    if ! git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1; then
+        _doctor_warn "repo_path is not a git repository: $repo_path"
+        return
+    fi
+
+    local rel
+    rel=$(git -C "$repo_path" config --get worktree.useRelativePaths 2>/dev/null || true)
+    if [[ "$rel" == "true" ]]; then
+        _doctor_pass "worktree.useRelativePaths is set"
+    else
+        _doctor_warn "worktree.useRelativePaths is not set — new worktrees will link absolutely and break if either tree moves. Fix: git -C '$repo_path' config worktree.useRelativePaths true"
+    fi
+
+    local absolute=0 broken=0 checked=0 wt
+    while read -r wt; do
+        [[ -n "$wt" ]] || continue
+        checked=$((checked + 1))
+
+        if [[ ! -e "$wt/.git" ]]; then
+            _doctor_fail "Registered worktree has no .git link: $wt"
+            broken=$((broken + 1))
+            continue
+        fi
+
+        # A relative link starts "gitdir: ." — any other prefix is an absolute path.
+        if [[ "$(head -c 9 "$wt/.git" 2>/dev/null)" != "gitdir: ." ]]; then
+            _doctor_warn "Absolute link: $wt. Fix: git -C '$repo_path' worktree repair '$wt'"
+            absolute=$((absolute + 1))
+        fi
+
+        # The link resolving is a separate fact from its shape: a relative link
+        # can still point at nothing if only one of the two trees was moved.
+        if ! git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
+            _doctor_fail "Link does not resolve: $wt. Fix: git -C '$repo_path' worktree repair '$wt'"
+            broken=$((broken + 1))
+        fi
+    done < <(git -C "$repo_path" worktree list --porcelain 2>/dev/null \
+             | awk '/^worktree /{print $2}' | tail -n +2)
+
+    if [[ "$checked" -eq 0 ]]; then
+        _doctor_pass "No linked worktrees to check"
+    elif [[ "$absolute" -eq 0 ]] && [[ "$broken" -eq 0 ]]; then
+        _doctor_pass "All $checked worktree links are relative and resolving"
+    fi
 }
 
 _doctor_check_cmd() {
