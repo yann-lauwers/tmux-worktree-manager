@@ -252,3 +252,74 @@ services: []"
     [[ "$output" == *"Port Conflicts"* ]]
     [[ "$output" == *"Summary"* ]]
 }
+
+# --- Worktree links (relative vs absolute) ---
+#
+# The failure these pin is one-directional: an absolute link keeps resolving from
+# the repo side after a move while `git status` inside the worktree fails, so the
+# check has to read the link's SHAPE, not just whether git currently answers.
+
+_links_fixture() {
+    local repo="$TEST_TMPDIR/linkrepo"
+    git init -q --initial-branch=main "$repo"
+    git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    echo "$repo"
+}
+
+@test "doctor link check reports no worktrees when there are none" {
+    local repo
+    repo=$(_links_fixture)
+    run _doctor_check_links "$repo"
+    [[ "$output" == *"No linked worktrees to check"* ]]
+}
+
+@test "doctor link check warns when useRelativePaths is unset" {
+    local repo
+    repo=$(_links_fixture)
+    run _doctor_check_links "$repo"
+    [[ "$output" == *"worktree.useRelativePaths is not set"* ]]
+    [[ "$output" == *"WARN"* ]]
+}
+
+@test "doctor link check flags an absolute link" {
+    local repo
+    repo=$(_links_fixture)
+    git -C "$repo" worktree add -q "$TEST_TMPDIR/wt-abs" -b abs
+    run _doctor_check_links "$repo"
+    [[ "$output" == *"Absolute link"* ]]
+    [[ "$output" == *"worktree repair"* ]]
+}
+
+@test "doctor link check passes a relative link" {
+    local repo
+    repo=$(_links_fixture)
+    git -C "$repo" config worktree.useRelativePaths true
+    git -C "$repo" worktree add -q "$TEST_TMPDIR/wt-rel" -b rel
+    run _doctor_check_links "$repo"
+    [[ "$output" == *"relative and resolving"* ]]
+    [[ "$output" != *"Absolute link"* ]]
+}
+
+@test "doctor link check fails a link that does not resolve" {
+    local repo
+    repo=$(_links_fixture)
+    git -C "$repo" config worktree.useRelativePaths true
+    git -C "$repo" worktree add -q "$TEST_TMPDIR/wt-move" -b moved
+    mv "$TEST_TMPDIR/wt-move" "$TEST_TMPDIR/wt-elsewhere"
+    mkdir -p "$TEST_TMPDIR/wt-move"
+    printf 'gitdir: ../nowhere/.git/worktrees/moved\n' > "$TEST_TMPDIR/wt-move/.git"
+    run _doctor_check_links "$repo"
+    [[ "$output" == *"does not resolve"* ]]
+    [[ "$output" == *"FAIL"* ]]
+}
+
+@test "doctor link check warns when repo_path is not a git repository" {
+    mkdir -p "$TEST_TMPDIR/notarepo"
+    run _doctor_check_links "$TEST_TMPDIR/notarepo"
+    [[ "$output" == *"not a git repository"* ]]
+}
+
+@test "doctor link check warns on an empty repo_path" {
+    run _doctor_check_links ""
+    [[ "$output" == *"No repo_path"* ]]
+}
