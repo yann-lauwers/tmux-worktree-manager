@@ -265,3 +265,48 @@ CMUX
     PATH="$fake:$PATH" run worktree_occupant "/w/feature"
     [ -z "$output" ]
 }
+
+# --- _ensure_nav_link ---
+
+@test "_ensure_nav_link creates <repo>-worktrees beside the checkout" {
+    local wt_dir="$TEST_TMPDIR/central/test-repo"
+    mkdir -p "$wt_dir"
+    _ensure_nav_link "$TEST_REPO" "$wt_dir"
+    [ -L "$TEST_REPO-worktrees" ]
+    [ "$(readlink "$TEST_REPO-worktrees")" = "$wt_dir" ]
+}
+
+@test "_ensure_nav_link skips a nested worktree dir" {
+    _ensure_nav_link "$TEST_REPO" "$TEST_REPO/.worktrees"
+    [ ! -e "$TEST_REPO-worktrees" ]
+}
+
+@test "_ensure_nav_link is idempotent" {
+    local wt_dir="$TEST_TMPDIR/central/test-repo"
+    mkdir -p "$wt_dir"
+    _ensure_nav_link "$TEST_REPO" "$wt_dir"
+    _ensure_nav_link "$TEST_REPO" "$wt_dir"
+    [ "$(readlink "$TEST_REPO-worktrees")" = "$wt_dir" ]
+}
+
+@test "_ensure_nav_link never clobbers a real directory at the link path" {
+    mkdir -p "$TEST_REPO-worktrees/keepme"
+    _ensure_nav_link "$TEST_REPO" "$TEST_TMPDIR/central/test-repo"
+    [ ! -L "$TEST_REPO-worktrees" ]
+    [ -d "$TEST_REPO-worktrees/keepme" ]
+}
+
+@test "_ensure_nav_link leaves a link that points elsewhere alone" {
+    local other="$TEST_TMPDIR/other"
+    mkdir -p "$other"
+    ln -s "$other" "$TEST_REPO-worktrees"
+    _ensure_nav_link "$TEST_REPO" "$TEST_TMPDIR/central/test-repo"
+    [ "$(readlink "$TEST_REPO-worktrees")" = "$other" ]
+}
+
+@test "create_worktree writes the nav link when worktrees live outside the repo" {
+    PROJECT_WORKTREE_DIR="$TEST_TMPDIR/central/test-repo" \
+        create_worktree "feature/nav" "" "$TEST_REPO" >/dev/null 2>&1
+    [ -L "$TEST_REPO-worktrees" ]
+    [ -d "$TEST_REPO-worktrees/feature-nav" ]
+}

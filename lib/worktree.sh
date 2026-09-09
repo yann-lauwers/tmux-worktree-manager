@@ -196,6 +196,49 @@ _freshest_base_ref() {
     printf '%s' "$base"
 }
 
+# Point a navigation symlink at this repo's worktree tree, beside the checkout.
+#
+# The worktrees themselves live outside the checkout (docs/adr/0001), which costs
+# the one thing nesting was reaching for: you cannot open the project folder and
+# see its branches. The link buys that back without moving anything — every
+# traversal tool ignores a symlink (`grep -r`, `find` and `rg` do not follow one
+# without `--follow`), and removing a symlink never follows it, so no `clean` or
+# `rm` reaches the worktrees through it.
+#
+# Named `<repo>-worktrees` and placed beside the checkout, so each link opens onto
+# one repo's branches. A single link per product folder pointing at the whole tree
+# was the first shape and listed every unrelated project.
+#
+# Best-effort: a create never fails because a convenience link could not be
+# written, and anything already at the path is left exactly as it is.
+# Args: $1 repo_root, $2 worktrees_dir
+# Side: may create a symlink beside $1
+_ensure_nav_link() {
+    local repo_root="$1"
+    local wt_dir="$2"
+
+    # A nested layout is already navigable from the checkout — nothing to link.
+    [[ "$wt_dir" == "$repo_root"/* ]] && return 0
+
+    local link="${repo_root%/}-worktrees"
+
+    if [[ -L "$link" ]]; then
+        [[ "$(readlink "$link")" == "$wt_dir" ]] || log_debug "Nav link $link points elsewhere; left as is"
+        return 0
+    fi
+    if [[ -e "$link" ]]; then
+        log_debug "Nav link path $link is occupied by a real file; left as is"
+        return 0
+    fi
+
+    if ln -s "$wt_dir" "$link" 2>/dev/null; then
+        log_debug "Nav link created: $link -> $wt_dir"
+    else
+        log_debug "Could not create nav link at $link"
+    fi
+    return 0
+}
+
 # Create a new worktree
 # Usage: create_worktree <branch> [base_branch] [repo_root]
 # Outputs: the worktree path on success (to stdout)
@@ -298,6 +341,7 @@ create_worktree() {
     fi
 
     if [[ $git_exit_code -eq 0 ]]; then
+        _ensure_nav_link "$repo_root" "$wt_dir"
         log_success "Worktree created at: $wt_path" >&2
         # Only output the path to stdout (this is what gets captured)
         echo "$wt_path"

@@ -33,8 +33,17 @@ lands on indexers, watchers, linters and any Docker build context rooted at the 
 
 **Editors do not register a nested worktree as its own repository.** VS Code's
 `git.repositoryScanMaxDepth` defaults to 1, and `<repo>/.worktrees/x` is two levels down, so its
-files are treated as belonging to the parent. JetBrains states the same conclusion outright and
-calls it broken integration. Neither vendor documents a recommended location.
+files are treated as belonging to the parent. JetBrains is the one vendor that writes the rule
+down: *"Avoid nesting worktrees … IntelliJ IDEA misidentifies such projects as multi-root
+projects, which breaks the worktree integration."* VS Code documents worktrees and not placement.
+
+**Every tool built to run many checkouts at once ships C.** Cursor uses `~/.cursor/worktrees`
+and does not let you change it; Conductor uses `~/conductor/<workspace>`; Vibe Kanban uses
+`/var/tmp/vibe-kanban/worktrees`; `gwq`'s default `basedir` is literally `~/worktrees`. Claude
+Code is the sole exception at `<repo>/.claude/worktrees` — and its own docs tell a custom
+creation hook to "create its directories outside any repository", while four runtime guards
+exist to stop an agent writing into the parent through the ambiguous path that nesting creates.
+Under C there is no ambiguous path to guard.
 
 **One backup-exclusion rule covers the whole class.** `~/worktrees` is a single path for
 `tmutil addexclusion` or an Arq rule. A and B need one rule per repo or per product folder,
@@ -55,10 +64,20 @@ command per worktree — `git -C <repo> worktree repair <path>` — and `wt doct
 condition under **Worktree Links**. The destruction and traversal costs above are not recoverable
 and are paid continuously; this one is recoverable and paid only when something moves.
 
-**Navigation is solved with a symlink, not by moving the worktrees.** A link from the product
-folder into the central tree gives `cd <product>/worktrees/<repo>/<branch>` while every traversal
-tool ignores it: `grep -r` and `find` do not follow it, `du` reports the link, and removing a
-symlink never follows it — so no `clean` or `rm` can reach the worktrees through it.
+**Navigation is solved with a symlink, not by moving the worktrees.** Each repo gets one
+link beside its checkout, named after it — `<repo>-worktrees` -> `<worktree_dir>` — so
+`cd ~/Code/nexus-project/nexus-worktrees/<branch>` reaches that repo's branches and nothing else.
+`wt create` writes it, so a repo onboarded later gets one without anybody remembering to.
+
+The link sits beside the checkout rather than inside it, and it is named per repo rather than
+once per product folder. One product-folder link pointing at the whole of `~/worktrees` was the
+first shape and it was wrong: opening it listed every unrelated project. Inside the checkout it
+would be an untracked entry needing a `.git/info/exclude` line, and one `git clean -dxff` would
+remove it — the link only, never its target, but it would have to be recreated.
+
+Every traversal tool ignores it either way: `grep -r`, `find` and `rg` do not follow a symlink
+without `--follow`, `du` reports the link at 4 KB, and removing a symlink never follows it — so
+no `clean` or `rm` can reach the worktrees through it.
 
 **Migration between all three layouts is one command per worktree.** `git worktree move` rewrites
 both pointers and converts the relative path to the new geometry, so this decision is reversible
