@@ -60,18 +60,39 @@ omitted — `<repo_path>/.worktrees/` — nests every worktree inside the main
 working tree, and that carries costs no configuration removes:
 
 - `git clean -dxff` deletes every nested worktree **and all uncommitted work in
-  them**. `.gitignore` does not protect against this; `-x` is what overrides the
-  ignore, and the second `-f` is what overrides git's refusal to touch a nested
-  repository.
+  them**. Measured flag by flag, with the worktree ignored and not:
+
+  ```
+  git clean -df     ignored=no    SURVIVED   "Skipping repository .worktrees/x"
+  git clean -dxf    ignored=no    SURVIVED   "Skipping repository .worktrees/x"
+  git clean -dff    ignored=no    DELETED
+  git clean -dff    ignored=YES   SURVIVED
+  git clean -dxff   ignored=YES   DELETED    <- .gitignore does NOT save it
+  ```
+
+  `-x` overrides the ignore rule and the second `-f` overrides git's refusal to
+  touch a nested repository; together they take the tree. Ignoring the directory
+  fixes `git status` and `git add .`, and does not fix this.
 - Without a `.gitignore` entry, `git add .` stages the worktree as a gitlink. It
   warns and exits 0 rather than refusing.
-- Editors index it twice. VS Code's file watcher does not read `.gitignore`
-  ([microsoft/vscode#102829](https://github.com/microsoft/vscode/issues/102829),
-  closed as by-design), so a nested worktree is watched and searched as part of
-  the parent unless `files.watcherExclude` is set separately. JetBrains states it
-  outright: *"it is not recommended to create a worktree inside the directory of
-  your current project… IntelliJ IDEA misidentifies such projects as multi-root
-  projects, which breaks the worktree integration."*
+- Every project-rooted tool pays for it. Measured at 50 worktrees, counting only
+  what sits under the repo directory:
+
+  | | nested | central |
+  | --- | --- | --- |
+  | files under the repo dir | 3,650 | 550 |
+  | size under the repo dir | 89 MB | 4.8 MB |
+  | `grep -r` over it | 0.99 s | 0.15 s |
+  | `git status` | 0.045 s | 0.054 s |
+
+  `git status` is unaffected — git does not descend into a nested repository.
+  Everything that is not git pays 6.6×: indexers, watchers, linters, and any
+  Docker build context rooted at the project. `rg` and `fd` skip dot-prefixed
+  directories by default and so escape this; `grep -r` and `find` do not.
+
+- JetBrains states it outright: *"it is not recommended to create a worktree
+  inside the directory of your current project… IntelliJ IDEA misidentifies such
+  projects as multi-root projects, which breaks the worktree integration."*
 
 A central tree per project (`~/worktrees/<project>/<branch>`) is what this repo's
 own configs use, and matches what `gwq` and Cursor default to.
@@ -79,8 +100,30 @@ own configs use, and matches what `gwq` and Cursor default to.
 ### Worktree links and moving trees
 
 `wt create` sets `worktree.useRelativePaths=true` on the repo, so both sides of
-every worktree link are relative and a move preserving the geometry between the
-two trees survives.
+every worktree link are relative.
+
+**Relative linking helps far less under a central `worktree_dir` than it sounds,
+and this is the honest version.** The link a central layout stores names three
+ancestors — `../../../Code/product/repo/.git/worktrees/x` — and every name in it
+is a rename that breaks the link. Measured across six relocations:
+
+| Operation (`useRelativePaths=true`) | `<repo>/.worktrees/x` | `~/worktrees/<repo>/x` |
+| --- | --- | --- |
+| rename `$HOME` | survives | **survives** |
+| rename the repo directory | survives | breaks |
+| rename the parent product folder | survives | breaks |
+| rename `~/Code` | survives | breaks |
+| move to another volume | survives | breaks — and resolves to a *plausible wrong path* |
+| move the repo to a different depth | survives | breaks |
+
+With the setting **off**, every layout breaks on every one of those. So the
+setting is still worth having — it is the difference between one survivable
+rename and none — but a central layout is the worst of the three on this axis,
+and it is chosen for the reasons in **Where worktrees should live** above, not
+for this one.
+
+Recovery is one command per worktree:
+`git -C <repo_path> worktree repair <worktree_path>`.
 
 Worktrees created before this, or created with raw `git worktree add`, link
 absolutely and break on any rename of either tree — one-directionally, which is
@@ -95,8 +138,28 @@ git -C <repo_path> config worktree.useRelativePaths true
 git -C <repo_path> worktree repair <worktree_path>
 ```
 
-Requires git 2.48+. Setting it implies `extensions.relativeWorktrees`, which
-makes older git refuse the repository.
+**Requires git 2.48+, and the cost is larger than "worktree commands stop
+working".** Setting it writes `extensions.relativeWorktrees=true` *and* bumps
+`core.repositoryformatversion` from 0 to 1. At format version 1, any client that
+does not recognise the extension must refuse **the whole repository** — every
+`git log`, `git status` and clone, not just worktree commands. That reaches older
+libgit2 and JGit clients too: IDE integrations, GUI git apps, and CI images
+pinned to an old git.
+
+Two things bound the blast radius, both verified:
+
+- `.git/config` is never pushed, so **clones are unaffected** — a fresh clone of a
+  repo carrying the extension comes out at `repositoryformatversion=0` with the
+  extension absent. Teammates cannot be broken by this.
+- It is per repo and local, so the only floor that matters is the git version of
+  every client on **this** machine.
+
+Check before enabling it on a repo others' tools read:
+`git --version`, and `git config --get core.repositoryformatversion`.
+
+(Contrast `extensions.worktreeConfig`, which leaves the format version at 0 and is
+therefore silently *ignored* by an old git rather than refused — a worse failure,
+since per-worktree sparsity and `core.worktree` simply vanish.)
 
 ---
 
