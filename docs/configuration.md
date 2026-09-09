@@ -42,11 +42,61 @@ This document provides a complete reference for the YAML configuration files use
 |-------|------|----------|-------------|
 | `name` | string | Yes | Project identifier (used in tmux session names) |
 | `repo_path` | string | Yes | Path to the main git repository (supports `~`) |
+| `worktree_dir` | string | No | Where this project's worktrees live (supports `~`). Omitted → `<repo_path>/.worktrees/`, which nests them inside the checkout. See **Where worktrees should live** below. |
+| `base_branch` | string | No | Branch new worktrees are cut from. Omitted → the repo's current HEAD. |
+| `linear_prefix` | string | No | Issue-tracker prefix, so `wt create 1234` resolves to a `<prefix>-1234` branch. |
 
 ```yaml
 name: my-project
 repo_path: ~/code/my-project
+worktree_dir: ~/worktrees/my-project
+base_branch: main
 ```
+
+### Where worktrees should live
+
+**Set `worktree_dir` to a path outside the checkout.** The default when it is
+omitted — `<repo_path>/.worktrees/` — nests every worktree inside the main
+working tree, and that carries costs no configuration removes:
+
+- `git clean -dxff` deletes every nested worktree **and all uncommitted work in
+  them**. `.gitignore` does not protect against this; `-x` is what overrides the
+  ignore, and the second `-f` is what overrides git's refusal to touch a nested
+  repository.
+- Without a `.gitignore` entry, `git add .` stages the worktree as a gitlink. It
+  warns and exits 0 rather than refusing.
+- Editors index it twice. VS Code's file watcher does not read `.gitignore`
+  ([microsoft/vscode#102829](https://github.com/microsoft/vscode/issues/102829),
+  closed as by-design), so a nested worktree is watched and searched as part of
+  the parent unless `files.watcherExclude` is set separately. JetBrains states it
+  outright: *"it is not recommended to create a worktree inside the directory of
+  your current project… IntelliJ IDEA misidentifies such projects as multi-root
+  projects, which breaks the worktree integration."*
+
+A central tree per project (`~/worktrees/<project>/<branch>`) is what this repo's
+own configs use, and matches what `gwq` and Cursor default to.
+
+### Worktree links and moving trees
+
+`wt create` sets `worktree.useRelativePaths=true` on the repo, so both sides of
+every worktree link are relative and a move preserving the geometry between the
+two trees survives.
+
+Worktrees created before this, or created with raw `git worktree add`, link
+absolutely and break on any rename of either tree — one-directionally, which is
+what makes it worth checking rather than noticing: `git worktree list` keeps
+listing the worktree from the repo side while `git status` inside it answers
+`fatal: not a git repository`.
+
+`wt doctor` reports this under **Worktree Links**. To repair an existing one:
+
+```bash
+git -C <repo_path> config worktree.useRelativePaths true
+git -C <repo_path> worktree repair <worktree_path>
+```
+
+Requires git 2.48+. Setting it implies `extensions.relativeWorktrees`, which
+makes older git refuse the repository.
 
 ---
 
@@ -614,6 +664,6 @@ Checks performed:
 3. **Skip setup**: Use `wt create <branch> --no-setup` to create without running setup —
    except steps marked `always: true`, which run regardless (see the setup-step fields above)
 4. **Debug**: Set `WT_DEBUG=1` for verbose logging
-5. **Submodules**: Reference parent repo with `../../` in setup commands (worktrees are in `.worktrees/<branch>/`)
+5. **Submodules**: a setup command reaching back to the main checkout must derive the path rather than assume a depth — the worktree sits wherever `worktree_dir` puts it, which is usually not `<repo>/.worktrees/<branch>/`. Use `git rev-parse --git-common-dir` and take its parent.
 6. **Diagnose issues**: Run `wt doctor` to check config validity, state consistency, and tmux health
 7. **Debug panes**: Use `wt logs <branch> --all` to see output from all tmux panes at once
