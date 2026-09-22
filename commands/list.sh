@@ -50,9 +50,6 @@ cmd_list() {
     # Load project configuration
     load_project_config "$project"
 
-    # Clean up stale worktree entries before listing
-    cleanup_stale_worktrees "$project"
-
     local repo_root="$PROJECT_REPO_PATH"
 
     if [[ "$json_output" -eq 1 ]]; then
@@ -243,6 +240,8 @@ Options:
   -s, --status      Show status information (session, dirty state)
   --json            Output as JSON
   -h, --help        Show this help message
+
+Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt list

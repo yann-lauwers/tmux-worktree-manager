@@ -50,9 +50,6 @@ cmd_status() {
     project=$(require_project "$project")
     load_project_config "$project"
 
-    # Clean up stale worktree entries
-    cleanup_stale_worktrees "$project"
-
     # Check worktree exists
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
         die "Worktree not found for branch: $branch"
@@ -67,9 +64,6 @@ cmd_status() {
 
     local created_at
     created_at=$(get_worktree_state "$project" "$branch" "created_at")
-
-    # Clean up stale services
-    cleanup_stale_services "$project" "$branch"
 
     echo ""
     echo -e "${BOLD}WORKTREE STATUS${NC}"
@@ -169,6 +163,8 @@ Options:
   --services        Show detailed service status
   -p, --project     Project name (auto-detected if not specified)
   -h, --help        Show this help message
+
+Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt status feature/auth

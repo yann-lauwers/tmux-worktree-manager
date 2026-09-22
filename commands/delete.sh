@@ -296,6 +296,8 @@ Options:
   -p, --project     Project name (auto-detected if not specified)
   -h, --help        Show this help message
 
+Writes state: removes the worktree's state entry and releases its port slot.
+
 Examples:
   wt ${cmd}                            # picker over all worktrees
   wt ${cmd} -p nexus                   # picker filtered to one project

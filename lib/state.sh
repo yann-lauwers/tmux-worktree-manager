@@ -324,17 +324,24 @@ cleanup_stale_services() {
     done < <(list_service_states "$project" "$branch")
 }
 
-# Clean up stale worktree entries (directories that no longer exist)
-cleanup_stale_worktrees() {
+# Reclaim every stale entry of a project — one whose recorded directory no
+# longer exists. Only a writing command may call this: read commands report
+# stale entries and leave them.
+# Args: $1 project
+# Out: the number of entries reclaimed
+# Side: releases each stale entry's slot and deletes its state entry
+reclaim_stale_worktrees() {
     local project="$1"
 
     local file
     file=$(state_file "$project")
 
     if [[ ! -f "$file" ]]; then
+        echo 0
         return
     fi
 
+    local reclaimed=0
     local sanitized_branch wt_path
     while read -r sanitized_branch; do
         [[ -z "$sanitized_branch" ]] && continue
@@ -343,11 +350,14 @@ cleanup_stale_worktrees() {
         if [[ -n "$wt_path" ]] && [[ ! -d "$wt_path" ]]; then
             local branch
             branch=$(yaml_get "$file" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
-            log_warn "Cleaning up stale worktree state: $branch (path $wt_path no longer exists)"
+            log_warn "Reclaiming stale worktree state: $branch (path $wt_path no longer exists)"
             release_slot "$project" "$branch" 2>/dev/null || true
             with_file_lock "$file" yq -i "del(.worktrees.\"$sanitized_branch\")" "$file"
+            reclaimed=$((reclaimed + 1))
         fi
     done < <(list_worktree_states "$project")
+
+    echo "$reclaimed"
 }
 
 # Get tmux window name for a worktree (short dirname for Linear, sanitized for others)
