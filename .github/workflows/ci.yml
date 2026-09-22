@@ -6,6 +6,12 @@ on:
     tags: ['v*']
   pull_request:
 
+env:
+  # Every YAML read and write in wt goes through yq, so an unpinned yq changes
+  # what is tested with no commit here. Bump it with CONTRIBUTING.md, which
+  # names the same release; tests/test_ci_yq_pin.bats fails when they differ.
+  YQ_VERSION: v4.53.6
+
 jobs:
   tests:
     name: bats suite (${{ matrix.os }})
@@ -26,12 +32,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bats tmux
-          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install bats-core yq tmux
+        run: brew install bats-core tmux
+
+      - name: Install yq (pinned)
+        run: |
+          case "$RUNNER_OS" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            *) echo "Unsupported runner OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch=amd64 ;;
+            ARM64) arch=arm64 ;;
+            *) echo "Unsupported runner arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/yq-bin"
+          curl -fsSL -o "$RUNNER_TEMP/yq-bin/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_${os}_${arch}"
+          chmod +x "$RUNNER_TEMP/yq-bin/yq"
+          echo "$RUNNER_TEMP/yq-bin" >> "$GITHUB_PATH"
+
+      - name: Verify yq version
+        run: |
+          actual="$(yq --version)"
+          if [[ "$actual" != *"version ${YQ_VERSION}"* ]]; then
+            echo "Expected yq ${YQ_VERSION} from $RUNNER_TEMP/yq-bin, got $(command -v yq): $actual" >&2
+            exit 1
+          fi
+          echo "$actual"
 
       - name: Run tests
         run: bats tests/

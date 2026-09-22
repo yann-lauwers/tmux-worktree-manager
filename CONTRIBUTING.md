@@ -18,7 +18,7 @@ Thank you for your interest in contributing to **wt** — the Git Worktree Manag
 
 - **bash** (macOS bash 3.2+ or any modern bash)
 - **git** 2.5+
-- **yq** (mikefarah v4) — `brew install yq`
+- **yq** — the suite is tested against **mikefarah/yq v4.53.6**, the exact release pinned by `YQ_VERSION` in `.github/workflows/ci.yml`. `brew install yq` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/mikefarah/yq/releases/tag/v4.53.6
 - **tmux** — `brew install tmux`
 - **bats-core** (for running tests) — `brew install bats-core`
 
@@ -30,7 +30,7 @@ git clone git@github.com:yann-lauwers/tmux-worktree-manager.git
 cd tmux-worktree-manager
 
 # Install dependencies
-brew install yq tmux bats-core
+brew install tmux bats-core   # yq: the pinned release binary — see Prerequisites
 
 # Make scripts executable and install
 ./install.sh
