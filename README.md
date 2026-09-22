@@ -37,7 +37,7 @@ cd ~/.local/share/wt-cli
 The installer will:
 1. Check dependencies
 2. Create a `wt` symlink in `~/bin` (configurable with `--prefix`)
-3. Install shell completions (bash/zsh)
+3. Link shell completions (bash/zsh) from this checkout, so they update with it
 4. Create config directories
 
 Restart your shell, then verify:
@@ -50,6 +50,8 @@ wt --version
 
 ```bash
 rm ~/bin/wt
+rm ~/.zsh/completions/_wt
+rm ~/.local/share/bash-completion/completions/wt
 rm -rf ~/.local/share/wt-cli
 rm -rf ~/.config/wt
 rm -rf ~/.local/share/wt
