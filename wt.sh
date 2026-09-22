@@ -4,7 +4,11 @@
 
 set -euo pipefail
 
-VERSION="2.0.0"
+# What `wt --version` reports where the install is not a git checkout; a checkout
+# reports its release tag instead (lib/version.sh). The release step,
+# scripts/check-release.sh, keeps this equal to the latest v* tag. Keep the
+# VERSION="x.y.z" form: that script parses this line.
+VERSION="2.1.0"
 
 # Determine script directory (resolve symlinks)
 SOURCE="${BASH_SOURCE[0]}"
@@ -19,6 +23,7 @@ export WT_SCRIPT_DIR
 
 # Source library modules
 source "${WT_SCRIPT_DIR}/lib/utils.sh"
+source "${WT_SCRIPT_DIR}/lib/version.sh"
 source "${WT_SCRIPT_DIR}/lib/config.sh"
 source "${WT_SCRIPT_DIR}/lib/port.sh"
 source "${WT_SCRIPT_DIR}/lib/state.sh"
@@ -156,9 +161,10 @@ For more information on a command, run:
 "
 }
 
-# Show version
+# Print the version of the install checkout wt runs from
+# Out: wt <version>
 show_version() {
-    echo "wt version $VERSION"
+    echo "wt $(resolve_version "$WT_SCRIPT_DIR")"
 }
 
 # Check dependencies

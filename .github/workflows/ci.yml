@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -17,6 +18,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -32,3 +35,15 @@ jobs:
 
       - name: Run tests
         run: bats tests/
+
+  release-check:
+    name: release tag matches VERSION
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check VERSION matches the tag
+        run: scripts/check-release.sh

@@ -237,6 +237,30 @@ wt doctor
 
 Checks dependencies, config validity, state consistency, tmux health, and port conflicts.
 
+## Versioning
+
+`wt --version` prints `wt <version>`, derived from `git describe --tags --always --dirty
+--match 'v[0-9]*'` run on the install checkout — the directory `wt.sh` lives in, wherever it
+was invoked from:
+
+- `2.1.0` — HEAD is exactly on a release tag.
+- `2.1.0-3-gabc1234` — 3 commits past the tag `v2.1.0`, at commit `abc1234`.
+- any of the above with a `-dirty` suffix — uncommitted changes to a tracked file.
+- a bare commit hash (e.g. `a1b2c3d`) — no release tag is reachable, such as a shallow clone.
+- the `VERSION` constant in `wt.sh` — the install checkout is not a git repository at all.
+
+Bump rule (semver): **MAJOR** for a removed or renamed command or flag, **MINOR** for a new
+command or flag, **PATCH** for a fix.
+
+Release steps:
+
+1. Bump `VERSION` in `wt.sh` in the pull request.
+2. After merge: `git tag -a vX.Y.Z <merge-sha> -m vX.Y.Z`.
+3. Run `scripts/check-release.sh` to confirm `VERSION` matches the tag.
+4. `git push origin vX.Y.Z` — CI re-runs the check on the tag push.
+
+A bad tag is replaced by a new PATCH tag, never moved.
+
 ## Testing
 
 Tests use [bats-core](https://github.com/bats-core/bats-core):
