@@ -21,7 +21,7 @@ Thank you for your interest in contributing to **wt** — the Git Worktree Manag
 - **yq** — the suite is tested against **mikefarah/yq v4.53.6**, the exact release pinned by `YQ_VERSION` in `.github/workflows/ci.yml`. `brew install yq` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/mikefarah/yq/releases/tag/v4.53.6
 - **tmux** — `brew install tmux`
 - **bats-core** (for running tests) — `brew install bats-core`
-- **shellcheck** — the suite is linted against **koalaman/shellcheck v0.11.0**, the exact release pinned by `SHELLCHECK_VERSION` in `.github/workflows/ci.yml` and read by `scripts/shellcheck.sh`, at severity **info** and above (the floor `scripts/shellcheck.sh` sets on the invocation — `.shellcheckrc` carries no severity key). `brew install shellcheck` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/koalaman/shellcheck/releases/tag/v0.11.0
+- **shellcheck** — the suite itself requires the pinned release, not only the lint: `tests/test_githooks.bats` runs the real `koalaman/shellcheck v0.11.0` against a planted finding, and fails loudly, naming the release, when it is missing from PATH. It is the exact release pinned by `SHELLCHECK_VERSION` in `.github/workflows/ci.yml` and read by `scripts/shellcheck.sh`, at severity **info** and above (the floor `scripts/shellcheck.sh` sets on the invocation — `.shellcheckrc` carries no severity key). `brew install shellcheck` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/koalaman/shellcheck/releases/tag/v0.11.0
 
 ### Development Installation
 

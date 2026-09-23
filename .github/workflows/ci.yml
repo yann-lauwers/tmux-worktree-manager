@@ -68,6 +68,33 @@ jobs:
           fi
           echo "$actual"
 
+      - name: Install shellcheck (pinned)
+        run: |
+          case "$RUNNER_OS" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            *) echo "Unsupported runner OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "Unsupported runner arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+
+      - name: Verify shellcheck version
+        run: |
+          actual="$(shellcheck --version)"
+          if [[ "$actual" != *"version: ${SHELLCHECK_VERSION#v}"* ]]; then
+            echo "Expected shellcheck ${SHELLCHECK_VERSION} from $RUNNER_TEMP/shellcheck-bin, got $(command -v shellcheck): $actual" >&2
+            exit 1
+          fi
+          echo "$actual"
+
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -106,8 +133,18 @@ jobs:
 
       - name: Install shellcheck (pinned)
         run: |
+          case "$RUNNER_OS" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            *) echo "Unsupported runner OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "Unsupported runner arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           mkdir -p "$RUNNER_TEMP/shellcheck-bin"
-          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz" \
             | tar -xJ -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
           chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"

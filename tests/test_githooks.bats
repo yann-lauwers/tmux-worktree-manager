@@ -33,11 +33,17 @@ exec "$REAL_YQ" "\$@"
 EOF
     chmod +x "$STUBS/yq"
 
-    REAL_SHELLCHECK_DIR="$(dirname "$(command -v shellcheck)")"
-    export REAL_SHELLCHECK_DIR
-
     source "$WT_SCRIPT_DIR/scripts/shellcheck.sh"
     PINNED="$(pinned_shellcheck_version)"
+
+    REAL_SHELLCHECK="$(command -v shellcheck || true)"
+    if [[ -z "$REAL_SHELLCHECK" ]]; then
+        echo "test_githooks.bats: shellcheck is not on PATH — the suite requires the pinned release $PINNED from https://github.com/koalaman/shellcheck/releases/tag/$PINNED (see CONTRIBUTING.md § Prerequisites)" >&2
+        exit 1
+    fi
+    REAL_SHELLCHECK_DIR="$(dirname "$REAL_SHELLCHECK")"
+    export REAL_SHELLCHECK_DIR
+
     export PINNED
     export PINNED_BARE="${PINNED#v}"
 
@@ -45,6 +51,11 @@ EOF
     # shim (so the real yq answers even once shellcheck's own directory is
     # excluded), and no shellcheck of any kind unless a test adds one.
     export RESTRICTED_PATH="$STUBS:/usr/bin:/bin"
+
+    # RESTRICTED_PATH plus the real shellcheck, with REAL_SHELLCHECK_DIR
+    # ahead of /usr/bin: a runner image that ships its own shellcheck
+    # there (unrelated to the pin) must not shadow the one resolved above.
+    export PATH_WITH_REAL_SHELLCHECK="$STUBS:$REAL_SHELLCHECK_DIR:/usr/bin:/bin"
 }
 
 teardown_file() {
@@ -100,7 +111,7 @@ EOF
 
 @test "scripts/shellcheck.sh finds a planted SC2086 unquoted expansion" {
     printf 'foo="bar baz"\necho $foo\n' >> "$FIXTURE/lib/utils.sh"
-    PATH="$RESTRICTED_PATH:$REAL_SHELLCHECK_DIR" run "$FIXTURE/scripts/shellcheck.sh"
+    PATH="$PATH_WITH_REAL_SHELLCHECK" run "$FIXTURE/scripts/shellcheck.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"SC2086"* ]]
 }
@@ -114,7 +125,7 @@ EOF
 @test "pre-push refuses on a planted SC2086 finding, through the real hook and shellcheck" {
     printf 'foo="bar baz"\necho $foo\n' >> "$FIXTURE/lib/utils.sh"
     _stub_bats 0
-    PATH="$RESTRICTED_PATH:$REAL_SHELLCHECK_DIR" run bash -c "cd '$FIXTURE' && PATH='$RESTRICTED_PATH:$REAL_SHELLCHECK_DIR' ./.githooks/pre-push <<< ''"
+    PATH="$PATH_WITH_REAL_SHELLCHECK" run bash -c "cd '$FIXTURE' && PATH='$PATH_WITH_REAL_SHELLCHECK' ./.githooks/pre-push <<< ''"
     [ "$status" -ne 0 ]
     [[ "$output" == *"SC2086"* ]]
 }
