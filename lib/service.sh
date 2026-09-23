@@ -728,7 +728,12 @@ service_log_file() {
     echo "$WT_DATA_DIR/logs/${project}/${safe_branch}-${service_name}.log"
 }
 
-# Get service status
+# Get a service's status for display, computed at read time without writing.
+# A recorded "running" whose PID has died reads as "stopped"; a tmux-launched
+# service records no PID, so its recorded status is trusted. The stale record
+# stays until a writing command (`wt start`'s cleanup_stale_services) clears it.
+# Args: $1 project, $2 branch, $3 service_name
+# Out: the display status ("running" / "stopped" / "unknown" / a stored value)
 get_service_status() {
     local project="$1"
     local branch="$2"
@@ -736,6 +741,15 @@ get_service_status() {
 
     local status
     status=$(get_service_state "$project" "$branch" "$service_name" "status")
+
+    if [[ "$status" == "running" ]]; then
+        local pid
+        pid=$(get_service_state "$project" "$branch" "$service_name" "pid")
+        if [[ -n "$pid" ]] && [[ "$pid" != "null" ]] && ! kill -0 "$pid" 2>/dev/null; then
+            echo "stopped"
+            return
+        fi
+    fi
 
     echo "${status:-unknown}"
 }
