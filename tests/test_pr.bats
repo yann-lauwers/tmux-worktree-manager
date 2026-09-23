@@ -19,12 +19,12 @@ setup() {
     git -C "$TEST_REPO" add README.md
     git -C "$TEST_REPO" commit -m "initial" >/dev/null 2>&1
 
-    # lib/smart.sh hardcodes WT_PROJECTS_DIR at $HOME/.config/wt/projects
-    # (issue #26) — point HOME at a scratch tree carrying the project fixture
-    # instead of WT_CONFIG_DIR, same workaround test_output_streams.bats uses.
+    # HOME points at an empty scratch tree, isolated from the real
+    # ~/.config/wt/projects — the project fixture itself lives under
+    # WT_PROJECTS_DIR, which lib/smart.sh reads.
     HOME_DIR="$TEST_TMPDIR/home"
-    mkdir -p "$HOME_DIR/.config/wt/projects"
-    create_yaml_fixture "$HOME_DIR/.config/wt/projects/testproj.yaml" "name: testproj
+    mkdir -p "$HOME_DIR"
+    create_yaml_fixture "$WT_PROJECTS_DIR/testproj.yaml" "name: testproj
 repo_path: $TEST_REPO
 base_branch: main"
 
@@ -143,7 +143,7 @@ _empty_pr_fixture() {
     # reachable with zero entries.
     local real_repo
     real_repo=$(cd "$TEST_REPO" && pwd -P)
-    create_yaml_fixture "$HOME_DIR/.config/wt/projects/testproj.yaml" "name: testproj
+    create_yaml_fixture "$WT_PROJECTS_DIR/testproj.yaml" "name: testproj
 repo_path: $real_repo
 base_branch: main"
 
