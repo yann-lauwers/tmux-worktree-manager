@@ -2,7 +2,7 @@
 # commands/init.sh - Initialize project configuration
 
 # Write a new project config for the current git repository.
-# Args: none (reads -n/--name and -f/--force from argv)
+# Args: flags only
 # Side: writes the project config file, updates .gitignore for the default layout, dies (exit 1) on a git-repo or naming failure
 cmd_init() {
     local project_name=""
@@ -11,7 +11,10 @@ cmd_init() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -n|--name)
+            -n)
+                die_unknown_option "init" "$1" "use --name"
+                ;;
+            --name)
                 require_optarg "init" "$1" "${2:-}" "wt init [options]"
                 project_name="$2"
                 shift 2
@@ -182,7 +185,7 @@ Adds .worktrees/ to the repo's .gitignore when using the default in-repo worktre
 Usage: wt init [options]
 
 Options:
-  -n, --name <name>   Project name (default: the repo directory's name, sanitized)
+  --name <name>       Project name (default: the repo directory's name, sanitized)
   -f, --force          Overwrite an existing configuration (default: off — refuses if one exists)
   -h, --help            Show this page
 

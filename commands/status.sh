@@ -5,7 +5,6 @@
 # Args: $1 branch (optional; detected from the current directory when omitted), plus flags
 cmd_status() {
     local branch=""
-    local show_services=0
     local project=""
     local json_output=0
 
@@ -13,8 +12,7 @@ cmd_status() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --services)
-                show_services=1
-                shift
+                die_unknown_option "status" "$1" "the service table is now shown by default whenever the project has services"
                 ;;
             -p|--project)
                 require_optarg "status" "$1" "${2:-}"
@@ -102,7 +100,7 @@ cmd_status() {
     fi
 
     # Show services (includes port info)
-    if [[ "$show_services" -eq 1 ]] || [[ "$(get_services "$PROJECT_CONFIG_FILE")" -gt 0 ]]; then
+    if [[ "$(get_services "$PROJECT_CONFIG_FILE")" -gt 0 ]]; then
         list_services_status "$project" "$branch" "$PROJECT_CONFIG_FILE"
     else
         # No services configured — show ports standalone
@@ -275,12 +273,13 @@ Arguments:
   <branch>          Branch name (detected from the current directory when omitted)
 
 Options:
-  --services              Show detailed per-service status, including ports (default: off — shown
-                          anyway when the project has services; --json always includes both
-                          services and ports, and ignores this flag)
   -p, --project <name>   Project to act on (default: detected from the current directory)
   --json                  Print one JSON document instead of the report (default: off)
   -h, --help              Show this page
+
+The per-service status table, including ports, is shown by default whenever the project has
+services; a project with none shows the standalone Ports section instead. --json always
+includes both services and ports.
 
 Output (--json):
   project, branch, path, slot, created_at, created_at_epoch, created_at_local
@@ -291,7 +290,6 @@ Output (--json):
 
 Examples:
   wt status feature/auth
-  wt status feature/auth --services
   wt status feature/auth --json
   wt status                        # branch detected from the current directory
 

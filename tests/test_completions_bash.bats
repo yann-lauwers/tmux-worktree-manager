@@ -97,3 +97,20 @@ run_completion() {
     run_completion "wt open "
     [[ "${#COMPREPLY[@]}" -eq 0 ]]
 }
+
+@test "completion: open offers neither -a nor --all" {
+    run_completion "wt open -"
+    [[ " ${COMPREPLY[*]} " != *" -a "* ]]
+    [[ " ${COMPREPLY[*]} " != *" --all "* ]]
+}
+
+@test "completion: status offers no --services" {
+    run_completion "wt status -"
+    [[ " ${COMPREPLY[*]} " != *" --services "* ]]
+}
+
+@test "completion: init offers --name but not -n" {
+    run_completion "wt init -"
+    [[ " ${COMPREPLY[*]} " == *" --name "* ]]
+    [[ " ${COMPREPLY[*]} " != *" -n "* ]]
+}

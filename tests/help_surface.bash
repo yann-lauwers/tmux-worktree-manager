@@ -122,6 +122,13 @@ _wt_parse_case_arms() {
 
 # Emit the discovery line(s) for one parsed case arm. Split out of
 # _wt_parse_case_arms so the token classification reads as one place.
+# Beside the per-token FLAG lines, a live all-dash arm also emits one
+# "ALIASES\t<tokens comma-joined>" row (same exclusions as FLAG: -*, --,
+# -h/--help dropped, and a die_unknown_option body emits nothing at all) — the
+# per-token FLAG rows lose which short and long token share one arm, and
+# wt_short_flag_check needs that grouping to find a short letter mapped to
+# two different long flags. Every existing FLAG/CMD consumer filters with
+# `grep '^FLAG'` / `grep '^CMD'`, so this new row kind is invisible to them.
 # Args: $1 arm header ("tok1 | tok2"), $2 arm body text
 _wt_emit_arm() {
     local header="$1" body="$2"
@@ -157,6 +164,7 @@ _wt_emit_arm() {
         [[ "$body" == *die_unknown_option* ]] && return
         local takes_value=0
         [[ "$body" == *"shift 2"* ]] && takes_value=1
+        local -a kept=()
         for t in "${toks[@]}"; do
             case "$t" in
                 -*'*') continue ;;
@@ -164,11 +172,27 @@ _wt_emit_arm() {
                 -h|--help) continue ;;
             esac
             printf 'FLAG\t%s\t%s\n' "$t" "$takes_value"
+            kept+=("$t")
         done
+        [[ ${#kept[@]} -gt 0 ]] && printf 'ALIASES\t%s\n' "$(IFS=,; echo "${kept[*]}")"
     fi
 }
 
 # ─── Surface discovery, driven off main() and each handler in turn ─────────
+
+# Re-emit one function's FLAG and ALIASES arm rows under the words that own them.
+# Args: $1 owner words (empty for a top-level flag), $2 _wt_parse_case_arms output
+# Out: "FLAG<TAB>owner<TAB>flag<TAB>takes_value" and "ALIASES<TAB>owner<TAB>tokens-csv" rows
+_wt_emit_owned_flags() {
+    local owner="$1" arms="$2"
+    local kind a b
+    while IFS=$'\t' read -r kind a b; do
+        case "$kind" in
+            FLAG) printf 'FLAG\t%s\t%s\t%s\n' "$owner" "$a" "$b" ;;
+            ALIASES) printf 'ALIASES\t%s\t%s\n' "$owner" "$a" ;;
+        esac
+    done <<< "$arms"
+}
 
 # Discover the full command/subcommand/flag surface from source.
 # Args: $1 root
@@ -176,6 +200,9 @@ _wt_emit_arm() {
 #      "COMMAND<TAB>tokens<TAB>handler-fn"
 #      "SUBCOMMAND<TAB>parent-tokens<TAB>tokens<TAB>handler-fn"
 #      "FLAG<TAB>owner-words<TAB>flag<TAB>takes_value"
+#      "ALIASES<TAB>owner-words<TAB>tokens-csv" — one live arm's own short and
+#      long tokens together, owner-words empty for a top-level flag; wt's
+#      short-flag-collision check reads these, everything else ignores them.
 #
 # Bash 3.2 (macOS's /bin/bash) has no associative arrays, so a function's body
 # is never held in one — _wt_fn_body slices it back out of the flat dump text
@@ -189,12 +216,15 @@ _wt_discover_surface() {
     main_body=$(_wt_fn_body "$dump" "main")
     [[ -z "$main_body" ]] && { echo "DISCOVERY-ERROR main() not found after sourcing wt.sh" >&2; return 1; }
 
+    local main_arms
+    main_arms=$(_wt_parse_case_arms "$main_body")
+
     # Top-level commands, from main()'s own dispatch.
     local -a cmd_lines=()
     while IFS= read -r row; do
         [[ -z "$row" ]] && continue
         cmd_lines+=("$row")
-    done < <(_wt_parse_case_arms "$main_body" | grep '^CMD' || true)
+    done < <(printf '%s\n' "$main_arms" | grep '^CMD' || true)
 
     local row
     for row in "${cmd_lines[@]}"; do
@@ -207,13 +237,13 @@ _wt_discover_surface() {
         [[ -z "$handler_body" ]] && continue
 
         # Flags directly on the handler's own arg-parsing loop.
-        _wt_parse_case_arms "$handler_body" | grep '^FLAG' | while IFS=$'\t' read -r _ flag takes_value; do
-            printf 'FLAG\t%s\t%s\t%s\n' "$tokens" "$flag" "$takes_value"
-        done
+        local handler_arms
+        handler_arms=$(_wt_parse_case_arms "$handler_body")
+        _wt_emit_owned_flags "$tokens" "$handler_arms"
 
         # Subcommands: a case block inside the handler whose arms call a
         # cmd_* function (e.g. cmd_db's second case, cmd_pr's own case).
-        _wt_parse_case_arms "$handler_body" | grep '^CMD' | while IFS=$'\t' read -r _ sub_handler sub_tokens; do
+        printf '%s\n' "$handler_arms" | grep '^CMD' | while IFS=$'\t' read -r _ sub_handler sub_tokens; do
             # A handler's own case can re-discover itself (e.g. cmd_delete is
             # reached both directly and via rm/prune) — skip a "child" that
             # is the same function as its parent.
@@ -222,9 +252,7 @@ _wt_discover_surface() {
             local sub_body
             sub_body=$(_wt_fn_body "$dump" "$sub_handler")
             if [[ -n "$sub_body" ]]; then
-                _wt_parse_case_arms "$sub_body" | grep '^FLAG' | while IFS=$'\t' read -r _ flag takes_value; do
-                    printf 'FLAG\t%s %s\t%s\t%s\n' "$tokens" "$sub_tokens" "$flag" "$takes_value"
-                done
+                _wt_emit_owned_flags "$tokens $sub_tokens" "$(_wt_parse_case_arms "$sub_body")"
             fi
         done
 
@@ -237,17 +265,13 @@ _wt_discover_surface() {
             local default_body
             default_body=$(_wt_fn_body "$dump" "$default_fn")
             if [[ -n "$default_body" ]]; then
-                _wt_parse_case_arms "$default_body" | grep '^FLAG' | while IFS=$'\t' read -r _ flag takes_value; do
-                    printf 'FLAG\t%s\t%s\t%s\n' "$tokens" "$flag" "$takes_value"
-                done
+                _wt_emit_owned_flags "$tokens" "$(_wt_parse_case_arms "$default_body")"
             fi
         fi
     done
 
     # Top-level flags: dash tokens in main()'s own first (global-flag) case.
-    _wt_parse_case_arms "$main_body" | grep '^FLAG' | while IFS=$'\t' read -r _ flag takes_value; do
-        printf 'FLAG\t\t%s\t%s\n' "$flag" "$takes_value"
-    done
+    _wt_emit_owned_flags "" "$main_arms"
 }
 
 # ─── Help environment ───────────────────────────────────────────────────────
@@ -525,6 +549,44 @@ wt_surface_list() {
         [[ -z "$flags_display" ]] && flags_display="-"
         printf '%s %s %s\n' "$u_display" "$u_kind" "$flags_display"
     done < <(_wt_build_units "$root")
+}
+
+# Check that no short letter (-x) names two different long flags across wt:
+# every live arm pairing a short with a long records that pair, and a short
+# recorded against more than one distinct long is a violation. A short with no
+# long beside it pairs with nothing. awk holds the grouping, since bash 3.2 has
+# no associative arrays.
+# Args: $1 root
+# Out: one "VIOLATION -x names --a (<owner>) and --b (<owner>)" line per
+#      colliding short; return 0 clean, 1 when any was printed
+wt_short_flag_check() {
+    local surface
+    surface=$(_wt_discover_surface "$1")
+    [[ -z "$surface" ]] && return 1
+
+    local violations
+    violations=$(printf '%s\n' "$surface" | awk -F'\t' '
+        $1 != "ALIASES" { next }
+        {
+            owner = ($2 == "") ? "wt" : $2
+            n = split($3, toks, ",")
+            for (i = 1; i <= n; i++) {
+                if (toks[i] !~ /^-[A-Za-z0-9]$/) continue
+                for (j = 1; j <= n; j++) {
+                    if (toks[j] !~ /^--/ || seen[toks[i], toks[j]]++) continue
+                    if (!(toks[i] in names)) order[++count] = toks[i]
+                    names[toks[i]] = names[toks[i]] (names[toks[i]] == "" ? "" : " and ") toks[j] " (" owner ")"
+                    longs[toks[i]]++
+                }
+            }
+        }
+        END {
+            for (k = 1; k <= count; k++)
+                if (longs[order[k]] > 1) print "VIOLATION " order[k] " names " names[order[k]]
+        }')
+    [[ -z "$violations" ]] && return 0
+    printf '%s\n' "$violations"
+    return 1
 }
 
 # ─── Orchestrator ───────────────────────────────────────────────────────────

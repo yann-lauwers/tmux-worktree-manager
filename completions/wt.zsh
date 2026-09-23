@@ -129,7 +129,6 @@ _wt() {
                 open|o)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-a --all)'{-a,--all}'[All projects]' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:branch:_wt_worktrees'
                     ;;
@@ -214,7 +213,6 @@ _wt() {
                     ;;
                 status|st)
                     _arguments \
-                        '--services[Show detailed service status]' \
                         '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
@@ -311,7 +309,7 @@ _wt() {
                     ;;
                 init)
                     _arguments \
-                        '(-n --name)'{-n,--name}'[Project name]:name:' \
+                        '--name[Project name]:name:' \
                         '(-f --force)'{-f,--force}'[Overwrite existing config]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;

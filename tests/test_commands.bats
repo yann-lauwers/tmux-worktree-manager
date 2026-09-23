@@ -32,6 +32,7 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/stop.sh"
     source "$WT_SCRIPT_DIR/commands/db.sh"
     source "$WT_SCRIPT_DIR/commands/pr.sh"
+    source "$WT_SCRIPT_DIR/commands/logs.sh"
 
     # Create a test git repo
     TEST_REPO="$TEST_TMPDIR/test-repo"
@@ -90,6 +91,20 @@ hooks:
     run cmd_init --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"Initialize"* ]] || [[ "$output" == *"init"* ]]
+}
+
+@test "init: -n is refused as unknown option, naming --name" {
+    run cmd_init -n x 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt init: unknown option '-n'"* ]]
+    [[ "$output" == *"--name"* ]]
+}
+
+@test "init: --name still works" {
+    cd "$TEST_REPO"
+    run cmd_init --name my-project 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ -f "$WT_PROJECTS_DIR/my-project.yaml" ]]
 }
 
 # ===== config command =====
@@ -284,6 +299,82 @@ hooks:
     run cmd_status -p "testproj" "feature/status-test" 2>&1
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"feature/status-test"* ]]
+}
+
+@test "status: --services is refused, naming the default" {
+    run cmd_status --services 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt status: unknown option '--services'"* ]]
+    [[ "$output" == *"shown by default"* ]]
+}
+
+@test "status: no flag shows the standalone Ports section for a project with no services" {
+    create_yaml_fixture "$WT_PROJECTS_DIR/noservicesproj.yaml" "name: noservicesproj
+repo_path: $TEST_REPO
+ports:
+  reserved:
+    range: { min: 3000, max: 3010 }
+    slots: 3
+    services: {}
+  dynamic:
+    range: { min: 4000, max: 5000 }
+    services: {}
+services: []
+tmux:
+  session: wt-test-cmd-noservices
+  layout: tiled
+  windows:
+    - name: shell
+      panes:
+        - command: echo shell"
+    load_project_config "noservicesproj"
+
+    cd "$TEST_REPO"
+    local wt_path
+    wt_path=$(create_worktree "feature/status-noservices" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "noservicesproj" "feature/status-noservices" "$wt_path" 0
+    claim_slot "noservicesproj" "feature/status-noservices" 3
+
+    run cmd_status -p "noservicesproj" "feature/status-noservices" 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Ports"* ]]
+}
+
+@test "status: no flag shows the service table for a project with services" {
+    _create_test_config "svcproj"
+    load_project_config "svcproj"
+
+    cd "$TEST_REPO"
+    local wt_path
+    wt_path=$(create_worktree "feature/status-services" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "svcproj" "feature/status-services" "$wt_path" 0
+    claim_slot "svcproj" "feature/status-services" 3
+
+    run cmd_status -p "svcproj" "feature/status-services" 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"web"* ]]
+    [[ "$output" != *"Ports"* ]]
+}
+
+# ===== logs command =====
+
+@test "logs: -n behaves as --lines (unchanged)" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    local log_dir="$WT_DATA_DIR/logs/testproj"
+    mkdir -p "$log_dir"
+    local log_file="$log_dir/feature-logs-test-web.log"
+    seq 1 20 > "$log_file"
+
+    run cmd_logs -p "testproj" "feature/logs-test" "web" -n 5
+    [[ "$status" -eq 0 ]]
+    local n_output="$output"
+
+    run cmd_logs -p "testproj" "feature/logs-test" "web" --lines 5
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "$n_output" ]]
+    [[ "$output" == *"16"$'\n'"17"$'\n'"18"$'\n'"19"$'\n'"20"* ]]
 }
 
 # ===== start command =====
@@ -761,6 +852,20 @@ hooks:
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"wt open: unknown option"* ]]
     [[ "$output" != *"wt o:"* ]]
+}
+
+@test "open: -a is refused, naming the default" {
+    run cmd_open -a 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option '-a'"* ]]
+    [[ "$output" == *"omit it"* ]]
+}
+
+@test "open: --all is refused the same way" {
+    run cmd_open --all 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option '--all'"* ]]
+    [[ "$output" == *"omit it"* ]]
 }
 
 @test "delete -p with no value: standard usage line, exit 2, names 'wt delete:'" {
