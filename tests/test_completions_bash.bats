@@ -79,6 +79,18 @@ run_completion() {
     [[ "${#COMPREPLY[@]}" -eq 2 ]]
 }
 
+@test "completion: list offers --status but not -s" {
+    run_completion "wt list -"
+    [[ " ${COMPREPLY[*]} " == *" --status "* ]]
+    [[ " ${COMPREPLY[*]} " != *" -s "* ]]
+}
+
+@test "completion: ls offers neither -s nor --status" {
+    run_completion "wt ls -"
+    [[ " ${COMPREPLY[*]} " != *" -s "* ]]
+    [[ " ${COMPREPLY[*]} " != *" --status "* ]]
+}
+
 @test "completion: a worktree-listing command with no worktrees offers no candidates" {
     # $TEST_TMPDIR is not a git repo, so `git worktree list` fails silently
     # and the candidate list is empty.

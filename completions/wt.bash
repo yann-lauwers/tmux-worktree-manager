@@ -114,7 +114,7 @@ _wt_completions() {
             fi
             ;;
         ls)
-            _wt_compreply_from "-p --project -q --quick -s --status --json -h --help" "$cur"
+            _wt_compreply_from "-p --project -q --quick --json -h --help" "$cur"
             ;;
         rm)
             if [[ "$cur" == -* ]]; then
@@ -266,7 +266,7 @@ _wt_completions() {
             _wt_compreply_from "-p --project --json -h --help" "$cur"
             ;;
         list)
-            _wt_compreply_from "-p --project -s --status --json -h --help" "$cur"
+            _wt_compreply_from "-p --project --status --json -h --help" "$cur"
             ;;
         init)
             _wt_compreply_from "-n --name -f --force -h --help" "$cur"

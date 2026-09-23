@@ -215,6 +215,17 @@ _wrap_attach_page() {
     [[ "$output" == *"--surface-probe is not listed in Options:"* ]]
 }
 
+@test "an arm refusing its flag through die_unknown_option is owed no Options: line" {
+    run _wt_emit_arm "-s | --status" "die_unknown_option \"ls\" \"\$1\" \"use -q\""$'\n'
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+
+    # control: the same header with a live body is surface
+    run _wt_emit_arm "-s | --status" "smart_quick=false"$'\n'"shift"$'\n'
+    [[ "$output" == *$'FLAG\t-s\t0'* ]]
+    [[ "$output" == *$'FLAG\t--status\t0'* ]]
+}
+
 @test "control: a page missing its Exit codes: block is caught by name" {
     local fixture="$TEST_TMPDIR/control-exitcodes"
     _copy_wt_tree "$fixture"

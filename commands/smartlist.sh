@@ -22,7 +22,9 @@ cmd_smartlist() {
                 shift 2
                 ;;
             -q|--quick) smart_quick=true; shift ;;
-            -s|--status) smart_quick=false; shift ;;
+            -s|--status)
+                die_unknown_option "ls" "$1" "ls shows PR status by default, use -q to skip it"
+                ;;
             --json) json_output=1; shift ;;
             -h|--help)
                 show_ls_help
@@ -264,8 +266,7 @@ Usage: wt ls [options]
 
 Options:
   -p, --project <name>   Restrict to one project (default: all projects)
-  -q, --quick             Skip the PR-status lookup (default: off)
-  -s, --status            Fetch PR status (default: on — cancels an earlier -q)
+  -q, --quick             Skip the PR-status lookup (default: off — ls shows PR status by default)
   --json                  Print one JSON document instead of the table (default: off)
   -h, --help              Show this page
 
