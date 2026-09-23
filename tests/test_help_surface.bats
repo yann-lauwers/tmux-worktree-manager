@@ -12,10 +12,7 @@ setup() {
 }
 
 teardown() {
-    if [[ -n "${TEST_TMPDIR:-}" ]] && [[ -d "$TEST_TMPDIR" ]]; then
-        find "$TEST_TMPDIR" -type f -delete 2>/dev/null
-        find "$TEST_TMPDIR" -depth -type d -delete 2>/dev/null
-    fi
+    teardown_test_dirs
 }
 
 # Copy wt.sh, lib/ and commands/ into a fresh directory so a control can
