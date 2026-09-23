@@ -11,6 +11,11 @@ env:
   # what is tested with no commit here. Bump it with CONTRIBUTING.md, which
   # names the same release; tests/test_ci_yq_pin.bats fails when they differ.
   YQ_VERSION: v4.53.6
+  # scripts/shellcheck.sh reads this pin rather than carrying its own, so CI,
+  # the pre-push hook and a contributor's own shell run the same shellcheck.
+  # Bump it with CONTRIBUTING.md, which names the same release;
+  # tests/test_ci_shellcheck_pin.bats fails when they differ.
+  SHELLCHECK_VERSION: v0.11.0
 
 jobs:
   tests:
@@ -63,8 +68,89 @@ jobs:
           fi
           echo "$actual"
 
-      - name: Run tests
-        run: bats tests/
+      - name: Install shellcheck (pinned)
+        run: |
+          case "$RUNNER_OS" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            *) echo "Unsupported runner OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "Unsupported runner arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+
+      - name: Verify shellcheck version
+        run: |
+          actual="$(shellcheck --version)"
+          if [[ "$actual" != *"version: ${SHELLCHECK_VERSION#v}"* ]]; then
+            echo "Expected shellcheck ${SHELLCHECK_VERSION} from $RUNNER_TEMP/shellcheck-bin, got $(command -v shellcheck): $actual" >&2
+            exit 1
+          fi
+          echo "$actual"
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash --version
+          bats tests/
+
+      - name: Run tests (macOS, under /bin/bash 3.2)
+        if: runner.os == 'macOS'
+        run: |
+          export PATH="/bin:$PATH"
+          bash --version
+          # /bin first on PATH forces every exec hop bats re-resolves
+          # `#!/usr/bin/env bash` against back onto the system bash — this
+          # assertion fails the step the day a runner image ships a newer one,
+          # rather than passing silently on a leg the pin no longer covers.
+          if [[ "$(bash --version)" != *"version 3.2"* ]]; then
+            echo "Expected /bin/bash 3.2 on macOS, got: $(bash --version | head -1)" >&2
+            exit 1
+          fi
+          bats tests/
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yq (pinned)
+        run: |
+          mkdir -p "$RUNNER_TEMP/yq-bin"
+          curl -fsSL -o "$RUNNER_TEMP/yq-bin/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          chmod +x "$RUNNER_TEMP/yq-bin/yq"
+          echo "$RUNNER_TEMP/yq-bin" >> "$GITHUB_PATH"
+
+      - name: Install shellcheck (pinned)
+        run: |
+          case "$RUNNER_OS" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            *) echo "Unsupported runner OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "Unsupported runner arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+
+      - name: Lint
+        run: scripts/shellcheck.sh
 
   release-check:
     name: release tag matches VERSION

@@ -216,11 +216,13 @@ load_project_config() {
     PROJECT_NAME=$(yaml_get "$config_file" ".name" "$project")
     PROJECT_REPO_PATH=$(yaml_get "$config_file" ".repo_path")
     PROJECT_REPO_PATH=$(expand_path "$PROJECT_REPO_PATH")
+    # shellcheck disable=SC2034 # read by every command/*.sh caller and by tests, not by this function
     PROJECT_CONFIG_FILE="$config_file"
 
     # Port configuration
     PROJECT_RESERVED_PORT_MIN=$(yaml_get "$config_file" ".ports.reserved.range.min" "3000")
     PROJECT_RESERVED_PORT_MAX=$(yaml_get "$config_file" ".ports.reserved.range.max" "3005")
+    # shellcheck disable=SC2034 # read by commands/create.sh and tests, not by this function
     PROJECT_RESERVED_SLOTS=$(yaml_get "$config_file" ".ports.reserved.slots" "3")
     PROJECT_DYNAMIC_PORT_MIN=$(yaml_get "$config_file" ".ports.dynamic.range.min" "4000")
     PROJECT_DYNAMIC_PORT_MAX=$(yaml_get "$config_file" ".ports.dynamic.range.max" "5000")

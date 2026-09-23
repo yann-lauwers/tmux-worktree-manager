@@ -237,8 +237,8 @@ smart_pr_badge() {
     local url="https://github.com/${repo_nwo}/pull/${number}"
     local link_start='' link_end=''
     if [[ "${_WT_COLOR_OUT:-0}" == "1" ]]; then
-        link_start=$(printf '\e]8;;%s\e\\' "$url")
-        link_end=$(printf '\e]8;;\e\\')
+        link_start="${_WT_OSC8_OPEN}${url}${_WT_OSC8_ST}"
+        link_end="${_WT_OSC8_OPEN}${_WT_OSC8_ST}"
     fi
 
     if [[ "$state" == "MERGED" ]]; then

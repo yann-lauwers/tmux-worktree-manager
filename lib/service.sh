@@ -221,6 +221,7 @@ start_services_direct() {
     local -a svc_ports=()
 
     # Trap Ctrl+C to kill all background services
+    # shellcheck disable=SC2329 # invoked indirectly via `trap _direct_cleanup INT TERM` below
     _direct_cleanup() {
         echo ""
         # Teardown is best-effort: Ctrl-C already SIGINT'd the foreground group, so
