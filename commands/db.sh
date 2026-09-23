@@ -39,13 +39,16 @@ cmd_db() {
 }
 
 # Stop, wipe and recreate the ephemeral Postgres for a worktree, then apply migrations or a seed dump.
-# Args: none (reads -p/--project, --seed, --fresh, [branch] from argv)
-# Side: destroys and recreates the worktree's PG data dir, rewrites its env files
+# Args: none (reads -p/--project, -y/--yes, --seed, --fresh, [branch] from argv)
+# Side: destroys and recreates the worktree's PG data dir, rewrites its env files; prompts for
+#       confirmation unless -y (declined: returns 2, nothing wiped); dies (exit 2, nothing wiped)
+#       when stdin is not a terminal and -y was not given
 cmd_db_reset() {
     local branch=""
     local project=""
     local fresh_dump=0
     local seed=0
+    local yes=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -60,6 +63,10 @@ cmd_db_reset() {
                 ;;
             --seed)
                 seed=1
+                shift
+                ;;
+            -y|--yes)
+                yes=1
                 shift
                 ;;
             -h|--help)
@@ -123,6 +130,16 @@ cmd_db_reset() {
     print_kv "PG port" "$pg_port"
     print_kv "DB URL" "$db_url"
     echo ""
+
+    if [[ $yes -ne 1 ]]; then
+        if ! stdin_is_tty; then
+            die_usage "db reset" "stdin is not a terminal and --yes was not given, so nothing was wiped" "wt db reset [branch] --yes"
+        fi
+        if ! confirm "Wipe and recreate the database for '${branch}'?"; then
+            log_info "Aborted"
+            return 2
+        fi
+    fi
 
     # Step 1: Stop existing PG
     if [[ -d "$pg_dir" ]]; then
@@ -437,6 +454,7 @@ Options:
 
 Examples:
   wt db reset                    # Fresh DB + replay all migrations
+  wt db reset -y                 # Same, skip confirmation
   wt db reset --seed             # Restore from cached seed-source dump instead
   wt db reset --seed --fresh     # Re-dump the seed source first, then restore
   wt db use-remote               # Kill ephemeral + point env at remote DB
@@ -641,12 +659,17 @@ show_db_reset_help() {
 Stops, wipes, and recreates the ephemeral Postgres for a worktree, rewires its env files at
 DATABASE_URL/DIRECT_URL, and by default runs prisma migrate deploy for a clean migration state.
 
+Prompts "Wipe and recreate the database for '<branch>'? [y/N]" before stopping or deleting
+anything, unless -y is given; declining exits 2, the same as `wt delete`. Run with stdin not a
+terminal and -y not given, it refuses outright and wipes nothing.
+
 Usage: wt db reset [branch] [options]
 
 Arguments:
   [branch]           Full branch name (default: the current git branch)
 
 Options:
+  -y, --yes            Skip the confirmation prompt (default: off — prompts)
   --seed              Restore from the cached seed-source dump instead of migrating (default: off
                       — migrates)
   --fresh              Re-dump the seed source before restoring; requires --seed (default: off —
@@ -656,6 +679,7 @@ Options:
 
 Examples:
   wt db reset                           # Fresh DB + replay all migrations
+  wt db reset -y                        # Same, skip confirmation
   wt db reset --seed                    # Restore from cached seed-source dump
   wt db reset --seed --fresh            # Re-dump the seed source first, then restore
   wt db reset yann-lauwers/nex-1663     # Reset for specific branch
@@ -664,6 +688,7 @@ Exit codes:
   0  database reset
   1  PostgreSQL not found, no slot for the branch, Postgres failed to start, or no DIRECT_URL to
      dump from
-  2  usage error: unknown option, missing option argument, or missing branch
+  2  usage error: unknown option, missing option argument, or missing branch; or the confirmation
+     was declined, or stdin is not a terminal and --yes was not given
 EOF
 }
