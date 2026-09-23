@@ -233,6 +233,7 @@ list_all_projects() {
 show_list_help() {
     cat << 'EOF'
 Prints the worktrees for one project as a table, or every project's worktree count.
+Reads state only: the state and slots files are left unchanged.
 
 With no project detected and none given, lists every configured project instead.
 
@@ -243,8 +244,6 @@ Options:
   -s, --status            Show session and dirty-tree status per worktree (default: off)
   --json                  Print as a JSON array (default: off)
   -h, --help              Show this page
-
-Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt list

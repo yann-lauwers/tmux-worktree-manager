@@ -145,6 +145,7 @@ cmd_health() {
 show_health_help() {
     cat << 'EOF'
 Live-probes a worktree's services right now and reports per-service health.
+Reads state only: the state and slots files are left unchanged.
 
 Unlike `wt status`, which reports the status recorded when services were last
 started, this runs the health check declared for each service right now. A
@@ -163,8 +164,6 @@ Options:
   -t, --timeout <seconds>   Seconds to wait per service (default: 5)
   -p, --project <name>      Project to act on (default: detected from the current directory)
   -h, --help                 Show this page
-
-Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt health

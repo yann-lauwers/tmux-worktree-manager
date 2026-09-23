@@ -455,7 +455,8 @@ _doctor_check_cmd() {
 show_doctor_help() {
     cat << 'EOF'
 Runs six diagnostic checks against your wt setup and project configuration and prints a
-PASS/FAIL/WARN line per check plus a summary count.
+PASS/FAIL/WARN line per check plus a summary count. Reads state only: the state and slots
+files are left unchanged.
 
 Usage: wt doctor [options]
 
@@ -471,14 +472,6 @@ Options:
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help              Show this page
 
-Exit codes:
-  0                 No check failed (a warning — e.g. an orphaned worktree
-                    entry, a stale service PID — does not fail the run)
-  1                 At least one check failed (bad config, missing repo_path,
-                    overlapping port ranges, a broken worktree link, ...)
-
-Reads state only: the state and slots files are left unchanged.
-
 Examples:
   wt doctor
   wt doctor -p myproject
@@ -486,8 +479,10 @@ Examples:
 Aliases: wt doc
 
 Exit codes:
-  0  every check passed or only warned
-  1  at least one check failed
+  0  no check failed; a warning (an orphaned worktree entry, a stale service PID)
+     does not fail the run
+  1  at least one check failed (bad config, missing repo_path, overlapping port
+     ranges, a broken worktree link, ...)
   2  usage error: unknown option or missing option argument
 EOF
 }

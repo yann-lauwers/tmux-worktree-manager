@@ -152,6 +152,7 @@ cmd_status() {
 show_status_help() {
     cat << 'EOF'
 Prints a worktree's git status, ports, services and database connection info.
+Reads state only: the state and slots files are left unchanged.
 
 Usage: wt status [<branch>] [options]
 
@@ -163,8 +164,6 @@ Options:
                           anyway when the project has services)
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help              Show this page
-
-Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt status feature/auth
