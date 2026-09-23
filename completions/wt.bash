@@ -98,7 +98,7 @@ _wt_completions() {
             fi
             ;;
         ls)
-            COMPREPLY=($(compgen -W "-p --project -q --quick -s --status -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "-p --project -q --quick -s --status --json -h --help" -- "$cur"))
             ;;
         rm)
             if [[ "$cur" == -* ]]; then
@@ -146,7 +146,7 @@ _wt_completions() {
             ;;
         status|st)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--services -p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "--services --json -p --project -h --help" -- "$cur"))
             else
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
                 COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
@@ -154,7 +154,7 @@ _wt_completions() {
             ;;
         health|hc)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-t --timeout -p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "-t --timeout --json -p --project -h --help" -- "$cur"))
             else
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
                 COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
@@ -186,7 +186,7 @@ _wt_completions() {
             ;;
         ports)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-c --check -p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "-c --check --json -p --project -h --help" -- "$cur"))
             else
                 # First positional could be set/clear subcommand or branch
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -228,7 +228,7 @@ _wt_completions() {
             fi
             ;;
         doctor|doc)
-            COMPREPLY=($(compgen -W "-p --project -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "-p --project --json -h --help" -- "$cur"))
             ;;
         list)
             COMPREPLY=($(compgen -W "-p --project -s --status --json -h --help" -- "$cur"))

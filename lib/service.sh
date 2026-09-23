@@ -728,6 +728,49 @@ service_log_file() {
     echo "$WT_DATA_DIR/logs/${project}/${safe_branch}-${service_name}.log"
 }
 
+# Probe one service's health exactly as `wt health` decides it: run its
+# declared health_check when one exists, else treat a listening port as
+# healthy. Shared by `wt health`'s human table and --json path so both grade
+# a service identically.
+# Args: $1 service name, $2 port, $3 config file, $4 timeout (seconds)
+# Out: one TSV line: check (the declared health_check type, or "tcp" when
+#      none is declared), check_declared (true|false), verdict
+#      (healthy|unhealthy|down)
+# Side: runs the declared health check (a network probe) when one exists
+_health_probe_service() {
+    local name="$1"
+    local port="$2"
+    local config_file="$3"
+    local timeout="$4"
+
+    local health_type
+    health_type=$(yq -r ".services[] | select(.name == \"$name\") | .health_check.type // \"\"" \
+        "$config_file" 2>/dev/null)
+
+    local check check_declared verdict
+    if [[ -z "$health_type" ]] || [[ "$health_type" == "null" ]]; then
+        # No declared check — fall back to a listener probe rather than
+        # reporting healthy, which is what run_health_check would do.
+        check="tcp"
+        check_declared="false"
+        if port_in_use "$port"; then
+            verdict="healthy"
+        else
+            verdict="down"
+        fi
+    else
+        check="$health_type"
+        check_declared="true"
+        if run_health_check "$name" "$port" "$config_file" "$timeout" >/dev/null 2>&1; then
+            verdict="healthy"
+        else
+            verdict="unhealthy"
+        fi
+    fi
+
+    printf '%s\t%s\t%s\n' "$check" "$check_declared" "$verdict"
+}
+
 # Get a service's status for display, computed at read time without writing.
 # A recorded "running" whose PID has died reads as "stopped"; a tmux-launched
 # service records no PID, so its recorded status is trusted. The stale record

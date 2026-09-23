@@ -3,7 +3,9 @@
 #
 # Depends on: lib/utils.sh (colors, logging, die)
 
-WT_PROJECTS_DIR="$HOME/.config/wt/projects"
+# Keeps a WT_PROJECTS_DIR already set — lib/config.sh derives it from
+# WT_CONFIG_DIR — and falls back to the default location only when unset.
+WT_PROJECTS_DIR="${WT_PROJECTS_DIR:-$HOME/.config/wt/projects}"
 
 # ─── Project detection ───────────────────────────────────────────────────────
 
@@ -250,6 +252,21 @@ smart_pr_badge() {
     else
         printf '%b%s#%s%s%b' "$DIM" "$link_start" "$number" "$link_end" "$NC"
     fi
+}
+
+# A worktree's PR as a TSV row, via gh's own --jq rather than a jq pipe — jq is
+# an optional dependency and pr_lookup must not depend on it. No PR for the
+# branch → no output at all, never a row of empty fields.
+# Args: $1 branch, $2 owner/repo
+# Out: "<number>\t<state>\t<draft>\t<url>", or nothing
+smart_pr_json() {
+    local branch="$1"
+    local repo_nwo="$2"
+
+    gh pr list --repo "$repo_nwo" \
+        --head "$branch" --state all --limit 1 \
+        --json number,state,isDraft,url \
+        --jq '(.[0] // empty) | [.number, .state, .isDraft, .url] | @tsv' 2>/dev/null || true
 }
 
 # ─── User identity ──────────────────────────────────────────────────────────

@@ -54,6 +54,7 @@ cmd_ports() {
     local branch=""
     local project=""
     local check_availability=0
+    local json_output=0
 
     # Check for subcommand
     if [[ $# -gt 0 ]] && [[ "$1" != -* ]]; then
@@ -89,6 +90,10 @@ cmd_ports() {
                 project="$2"
                 shift 2
                 ;;
+            --json)
+                json_output=1
+                shift
+                ;;
             -h|--help)
                 show_ports_help
                 return 0
@@ -122,6 +127,7 @@ cmd_ports() {
     local slot
     slot=$(get_slot_for_worktree "$project" "$branch")
 
+    local projected="false"
     if [[ -z "$slot" ]]; then
         # A branch wt does not manage has no slot. Falling through to slot 0 here
         # would print another worktree's real ports as if they were this branch's,
@@ -133,6 +139,12 @@ cmd_ports() {
         fi
         log_info "Worktree not created yet, showing projected ports..."
         slot=0
+        projected="true"
+    fi
+
+    if [[ "$json_output" -eq 1 ]]; then
+        _ports_json "$project" "$branch" "$slot" "$projected" "$check_availability"
+        return 0
     fi
 
     echo ""
@@ -196,7 +208,7 @@ cmd_ports() {
     while IFS=: read -r service port; do
         [[ -z "$service" ]] && continue
         local var_name
-        var_name="PORT_$(echo "$service" | tr '[:lower:]-' '[:upper:]_')"
+        var_name=$(port_env_var_name "$service")
 
         # Check for override
         local override
@@ -216,12 +228,9 @@ cmd_ports() {
     if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE" "$wt_path"); then
         echo -e "${BOLD}Database${NC}"
         printf "%s\n" "$(printf '%.0s-' {1..60})"
-        local db_user db_host db_port db_name
-        db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
-        db_user="${db_user%%:*}"
-        db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
-        db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
-        db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+        local db_row db_host db_port db_user db_name
+        db_row=$(parse_db_url_components "$db_url")
+        IFS=$'\x1f' read -r db_host db_port db_user db_name <<< "$db_row"
         print_kv "Host" "$db_host"
         print_kv "Port" "$db_port"
         print_kv "User" "$db_user"
@@ -229,6 +238,93 @@ cmd_ports() {
         print_kv "Connection string" "$(redact_db_url "$db_url")"
         echo ""
     fi
+}
+
+# Assemble and print `wt ports --json`'s document for the show form. Takes
+# ALL ports (reserved and dynamic alike) from one `calculate_worktree_ports`
+# call, then splits them by which config section declares the service —
+# the human dynamic table computes dynamic ports separately and has its own
+# known bug with two dynamic services, left as-is here.
+# Args: $1 project, $2 branch, $3 slot, $4 projected (true|false),
+#       $5 check_availability (0|1)
+# Side: runs json_begin/json_emit; writes the document to real stdout
+_ports_json() {
+    local project="$1"
+    local branch="$2"
+    local slot="$3"
+    local projected="$4"
+    local check_availability="$5"
+
+    json_begin
+
+    json_set ".project" str "$project"
+    json_set ".branch" str "$branch"
+    json_set ".slot" int "$slot"
+    json_set ".projected" bool "$projected"
+
+    local reserved_services
+    reserved_services=$(yq -r '.ports.reserved.services // {} | keys | .[]' "$PROJECT_CONFIG_FILE" 2>/dev/null)
+
+    json_set ".reserved" arr
+    json_set ".dynamic" arr
+    json_set ".env" obj
+
+    local all_ports
+    all_ports=$(calculate_worktree_ports "$branch" "$PROJECT_CONFIG_FILE" "$slot")
+
+    local r_idx=0 d_idx=0
+    while IFS=: read -r svc port; do
+        [[ -z "$svc" ]] && continue
+
+        local override effective_port bucket idx
+        override=$(get_port_override "$project" "$branch" "$svc")
+        effective_port="${override:-$port}"
+
+        if echo "$reserved_services" | grep -qx "$svc"; then
+            bucket="reserved"
+            idx=$r_idx
+            r_idx=$((r_idx + 1))
+        else
+            bucket="dynamic"
+            idx=$d_idx
+            d_idx=$((d_idx + 1))
+        fi
+
+        json_set ".${bucket}[$idx].service" str "$svc"
+        json_set ".${bucket}[$idx].port" int "$port"
+        json_set ".${bucket}[$idx].override" int "$override"
+        json_set ".${bucket}[$idx].effective_port" int "$effective_port"
+
+        if [[ "$check_availability" -eq 1 ]]; then
+            local in_use_flag="false"
+            port_in_use "$effective_port" && in_use_flag="true"
+            json_set ".${bucket}[$idx].in_use" bool "$in_use_flag"
+        else
+            json_set ".${bucket}[$idx].in_use" null
+        fi
+
+        json_set_key ".env" "$(port_env_var_name "$svc")" int "$effective_port"
+    done <<< "$all_ports"
+
+    export_port_vars "$branch" "$PROJECT_CONFIG_FILE" "$slot" "$project" "$all_ports"
+    local wt_path db_url
+    wt_path=$(get_worktree_path "$project" "$branch" 2>/dev/null)
+    if db_url=$(resolve_db_url "$PROJECT_CONFIG_FILE" "$wt_path"); then
+        local db_row db_host db_port db_user db_name
+        db_row=$(parse_db_url_components "$db_url")
+        IFS=$'\x1f' read -r db_host db_port db_user db_name <<< "$db_row"
+
+        json_set ".database" obj
+        json_set ".database.host" str "$db_host"
+        json_set ".database.port" int "$db_port"
+        json_set ".database.user" str "$db_user"
+        json_set ".database.name" str "$db_name"
+        json_set ".database.url_redacted" str "$(redact_db_url "$db_url")"
+    else
+        json_set ".database" null
+    fi
+
+    json_emit
 }
 
 # Print the 'wt ports' help page to stdout.
@@ -253,11 +349,20 @@ Arguments:
 Options:
   -c, --check          Check whether each effective port is currently in use (default: off)
   -p, --project <name>   Project to act on (default: detected from the current directory)
+  --json                  Print one JSON document instead of the tables (default: off; applies to
+                          the show form only)
   -h, --help              Show this page
+
+Output (--json):
+  project, branch, slot, projected
+  reserved[], dynamic[]: service, port, override, effective_port, in_use (null without --check)
+  env: { PORT_<SERVICE>: effective port }
+  database: { host, port, user, name, url_redacted } (or null when none is configured)
 
 Examples:
   wt ports feature/auth
   wt ports feature/auth --check
+  wt ports feature/auth --json
   wt ports set api-server 4500 feature/auth
   wt ports clear api-server feature/auth
 
@@ -265,6 +370,8 @@ Exit codes:
   0  printed
   1  no slot found for a branch wt does not manage and the worktree does not exist
   2  usage error: unknown option, missing option argument, or missing branch
+
+Exit codes are the same with --json.
 EOF
 }
 

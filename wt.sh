@@ -23,6 +23,7 @@ export WT_SCRIPT_DIR
 
 # Source library modules
 source "${WT_SCRIPT_DIR}/lib/utils.sh"
+source "${WT_SCRIPT_DIR}/lib/json.sh"
 source "${WT_SCRIPT_DIR}/lib/version.sh"
 source "${WT_SCRIPT_DIR}/lib/config.sh"
 source "${WT_SCRIPT_DIR}/lib/port.sh"
@@ -165,7 +166,7 @@ check_dependencies() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required dependencies:"
         for dep in "${missing[@]}"; do
-            echo "  - $dep"
+            echo "  - $dep" >&2
         done
         exit 1
     fi
@@ -185,9 +186,9 @@ check_dependencies() {
     if [[ ${#optional_missing[@]} -gt 0 && "${WT_WARN_DEPS:-true}" != "false" ]]; then
         log_warn "Optional dependencies missing (some smart commands may not work):"
         for dep in "${optional_missing[@]}"; do
-            echo "  - $dep"
+            echo "  - $dep" >&2
         done
-        echo ""
+        echo "" >&2
     fi
 }
 
