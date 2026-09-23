@@ -2,7 +2,8 @@
 # commands/open.sh - Open a worktree in cmux/tmux/editor
 #
 # Usage:
-#   wt open                       # fzf picker across all projects
+#   wt open                       # fzf picker — the current project inside a repo, every
+#                                  # project outside one (see smart_detect_project)
 #   wt open nex-1500/fix-chat     # Open by branch/directory name
 #   wt open NEX-1500              # Fuzzy match by Linear ID
 #   wt open -p nexus              # Filter to one project
@@ -23,8 +24,7 @@ cmd_open() {
                 shift 2
                 ;;
             -a|--all)
-                project=""
-                shift
+                die_unknown_option "open" "$1" "without -p, a query already matches every project and the picker shows the current one inside a repo — omit it"
                 ;;
             -h|--help)
                 show_open_help
@@ -96,8 +96,9 @@ Arguments:
 Aliases: wt o
 
 Options:
-  -p, --project <name>   Restrict the picker/match to one project (default: all projects)
-  -a, --all               Search all projects (default: on — cancels an earlier -p)
+  -p, --project <name>   Restrict the picker/match to one project (default: a query matches
+                          every project; the picker shows the current project inside a repo
+                          wt knows, every project outside one)
   -h, --help              Show this page
 
 Opener is configurable in ~/.config/wt/config.yaml -> opener. Auto-detects: cmux > tmux > cd.

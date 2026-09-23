@@ -94,7 +94,7 @@ _wt_completions() {
             ;;
         open|o)
             if [[ "$cur" == -* ]]; then
-                _wt_compreply_from "-p --project -a --all -h --help" "$cur"
+                _wt_compreply_from "-p --project -h --help" "$cur"
             else
                 local worktrees
                 worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -169,7 +169,7 @@ _wt_completions() {
             ;;
         status|st)
             if [[ "$cur" == -* ]]; then
-                _wt_compreply_from "--services --json -p --project -h --help" "$cur"
+                _wt_compreply_from "--json -p --project -h --help" "$cur"
             else
                 local worktrees
                 worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -269,7 +269,7 @@ _wt_completions() {
             _wt_compreply_from "-p --project --status --json -h --help" "$cur"
             ;;
         init)
-            _wt_compreply_from "-n --name -f --force -h --help" "$cur"
+            _wt_compreply_from "--name -f --force -h --help" "$cur"
             ;;
         config)
             _wt_compreply_from "-e --edit -g --global -p --project --path -h --help" "$cur"
