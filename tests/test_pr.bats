@@ -95,6 +95,31 @@ _empty_pr_fixture() {
     echo "[]" > "$file"
 }
 
+# Run a command under a pty, in whichever script(1) syntax the platform on
+# hand accepts — BSD script takes the command and its arguments directly
+# after the output file, util-linux script takes the whole command as one
+# string to -c and the output file last. Detected off script's own --version
+# banner rather than uname, so a Linux box carrying BSD script (or the
+# reverse) still gets the syntax it actually has. Each argument is shell-quoted
+# with printf %q before being joined for -c, since that form runs the string
+# through a shell rather than exec'ing argv directly — and printf %q emits
+# $'...' quoting, which dash (util-linux script's fallback shell when SHELL
+# is unset) does not read, so the -c string is forced through bash explicitly.
+# Args: $@ the command and its arguments
+# Out: the command's combined stdout+stderr, as captured through the pty
+_run_under_pty() {
+    if script --version 2>/dev/null | grep -q util-linux; then
+        local quoted="" arg
+        for arg in "$@"; do
+            printf -v arg '%q' "$arg"
+            quoted+="$arg "
+        done
+        SHELL=/bin/bash script -qec "$quoted" /dev/null
+    else
+        script -q /dev/null "$@"
+    fi
+}
+
 # ─── pr conflicts: -r/--resolve is rejected, never rebases or merges ───────
 
 @test "pr conflicts -r is rejected: exit 2, stderr names wt pr resolve" {
@@ -195,12 +220,16 @@ base_branch: main"
     local fixture="$TEST_TMPDIR/prs.json"
     _mergeable_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
+    _stub_fzf "$STUB_BIN" "$FZF_CALL_LOG"
 
     local raw
-    raw=$(env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        script -q /dev/null "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/clean -p testproj 2>/dev/null)
+    raw=$(HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+        _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/clean -p testproj 2>/dev/null)
 
     [[ "$raw" == *"Nothing to resolve"* ]]
+    local calls
+    calls=$(wc -l < "$FZF_CALL_LOG" | tr -d ' ')
+    [[ "$calls" -eq 0 ]]
 }
 
 @test "pr resolve <branch> absent from scope exits 1" {
@@ -210,11 +239,13 @@ base_branch: main"
     local fixture="$TEST_TMPDIR/prs.json"
     _conflicting_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
+    _stub_fzf "$STUB_BIN" "$FZF_CALL_LOG"
 
-    run env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        script -q /dev/null "$WT_SCRIPT_DIR/wt.sh" pr resolve no-such-branch -p testproj
+    HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+        run _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve no-such-branch -p testproj
 
     [[ "$status" -eq 1 ]]
+    [[ "$output" == *"No open PR found for branch: no-such-branch"* ]]
 }
 
 @test "pr resolve <branch> skips the PR list and invokes fzf once, for the strategy only" {
@@ -229,8 +260,8 @@ base_branch: main"
     git -C "$TEST_REPO" worktree add "$TEST_TMPDIR/wt-auth" -b feature/auth >/dev/null 2>&1
 
     local raw
-    raw=$(env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        script -q /dev/null "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/auth -p testproj 2>/dev/null)
+    raw=$(HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+        _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/auth -p testproj 2>/dev/null)
 
     [[ "$raw" != *"Pick a PR to resolve"* ]]
     local calls

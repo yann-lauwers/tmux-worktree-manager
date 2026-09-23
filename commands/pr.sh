@@ -268,7 +268,7 @@ _pr_print_conflicts() {
     local entry project branch pr_number mergeable draft owner_tag rest
     for entry in "${conflicting[@]}"; do
         IFS='|' read -r project branch pr_number mergeable draft owner_tag rest <<< "$entry"
-        [[ "$owner_tag" == "mine" ]] && ((mine_count++))
+        [[ "$owner_tag" == "mine" ]] && mine_count=$((mine_count + 1))
     done
 
     echo -e "${BOLD}${RED}Conflicting PRs (mine: ${mine_count}/${#conflicting[@]}):${NC}"
@@ -283,7 +283,7 @@ _pr_print_conflicts() {
         else
             echo -e "  ${DIM}${i})  ${line}${NC}"
         fi
-        ((i++))
+        i=$((i + 1))
     done
     echo ""
     echo -e "${DIM}Total: ${#conflicting[@]} conflicting PR(s)  ◆ = local worktree${NC}"
