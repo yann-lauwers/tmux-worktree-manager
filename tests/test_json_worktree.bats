@@ -207,7 +207,7 @@ _make_worktree() {
     run --separate-stderr cmd_status -p "testproj" "feature/never-created" --json
     [[ "$status" -eq 1 ]]
     [[ -z "$output" ]]
-    [[ "$stderr" == *"Worktree not found"* ]]
+    [[ "$stderr" == *"no worktree for branch"* ]]
 }
 
 @test "status --json: unknown option still exits 2" {
@@ -291,7 +291,7 @@ _make_worktree() {
     run --separate-stderr cmd_ports -p "testproj" "feature/never-created" --json
     [[ "$status" -eq 1 ]]
     [[ -z "$output" ]]
-    [[ "$stderr" == *"Worktree not found"* ]]
+    [[ "$stderr" == *"no worktree for branch"* ]]
 }
 
 @test "ports --json: unknown option still exits 2" {
@@ -356,7 +356,7 @@ _make_worktree() {
     run --separate-stderr cmd_health -p "testproj" "feature/never-created" --json
     [[ "$status" -eq 1 ]]
     [[ -z "$output" ]]
-    [[ "$stderr" == *"Worktree not found"* ]]
+    [[ "$stderr" == *"no worktree for branch"* ]]
 }
 
 @test "health --json: unknown option still exits 2" {
