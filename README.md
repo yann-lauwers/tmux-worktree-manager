@@ -123,7 +123,7 @@ wt delete feature/auth
 | `wt config [--edit]` | View/edit configuration |
 | `wt db <subcommand>` | Manage the ephemeral Postgres: `reset`, `use-remote`/`detach`, `dump`, `url` |
 
-Run `wt <command> --help` for detailed usage of any command.
+Run `wt <command> --help`, or `wt help <command>`, for detailed usage of any command.
 
 ## Configuration
 

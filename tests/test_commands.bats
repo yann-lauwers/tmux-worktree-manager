@@ -3,6 +3,8 @@
 
 load test_helper
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     setup_test_dirs
     load_lib "utils"
@@ -29,6 +31,7 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/start.sh"
     source "$WT_SCRIPT_DIR/commands/stop.sh"
     source "$WT_SCRIPT_DIR/commands/db.sh"
+    source "$WT_SCRIPT_DIR/commands/pr.sh"
 
     # Create a test git repo
     TEST_REPO="$TEST_TMPDIR/test-repo"
@@ -792,4 +795,155 @@ hooks:
     run cmd_db
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"wt db: missing subcommand"* ]]
+}
+
+# ===== wt help <command> ================================================
+# 'wt help <command>' opens that command's own --help page through the
+# existing help path (main() rewrites it to '<command> --help' before
+# dispatch), so every assertion below runs the real wt.sh entry point.
+
+@test "help: every dispatched command word (canonical and alias), create and delete among them, matches 'wt <word> --help' byte for byte (C1, C2)" {
+    load help_surface
+    local checked=0 seen=""
+    while IFS='|' read -r kind _invoke display _flags _subwords; do
+        [[ "$kind" != "COMMAND" ]] && continue
+        local word
+        IFS=',' read -ra words <<< "$display"
+        for word in "${words[@]}"; do
+            run "$WT_SCRIPT_DIR/wt.sh" help "$word"
+            local help_status="$status" help_output="$output"
+            run "$WT_SCRIPT_DIR/wt.sh" "$word" --help
+            [[ "$help_status" -eq 0 ]]
+            [[ "$status" -eq 0 ]]
+            [[ "$help_output" == "$output" ]]
+            checked=$((checked + 1))
+            seen+=" $word"
+        done
+    done < <(_wt_build_units "$WT_SCRIPT_DIR")
+    [[ "$checked" -gt 0 ]]
+    # The ticket names create and delete; the sweep has to have reached both.
+    [[ "$seen " == *" create "* && "$seen " == *" delete "* ]]
+}
+
+@test "help: 'wt help <command>' works with yq and tmux absent, like --help (C3)" {
+    load help_surface
+    local shim home_dir
+    shim="$TEST_TMPDIR/help-shim"
+    home_dir="$TEST_TMPDIR/help-home"
+    mkdir -p "$home_dir"
+    _wt_build_help_shim "$shim"
+
+    local out="$TEST_TMPDIR/help-out.txt"
+    _wt_run_help_probe "$WT_SCRIPT_DIR" "$shim" "$home_dir" "$out" help create
+    [[ "$?" -eq 0 ]]
+    run cat "$out"
+    [[ "$output" == *"Usage: wt create"* ]]
+
+    local created
+    created=$(find "$home_dir" -mindepth 1 2>/dev/null | wc -l)
+    [[ "$created" -eq 0 ]]
+}
+
+@test "help: 'wt help bogus' exits 2, empty stdout, one stderr line naming the unknown command (C4)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" help bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt: unknown command 'bogus' — see 'wt --help'" ]]
+}
+
+@test "help: 'wt help' alone prints the top-level page, exit 0 (C5)" {
+    run "$WT_SCRIPT_DIR/wt.sh" help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+    [[ "$output" == *"Commands:"* ]]
+}
+
+@test "help: 'wt help help' and 'wt help --help' land on the top-level page (C5)" {
+    run "$WT_SCRIPT_DIR/wt.sh" help help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+
+    run "$WT_SCRIPT_DIR/wt.sh" help --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+}
+
+@test "help: 'wt help db reset' (extra words) exits 2, empty stdout, die_usage line on stderr" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" help db reset
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt help: takes one command name — for a subcommand's page run 'wt <command> <subcommand> --help' — see 'wt help --help'"$'\n'"usage: wt help <command>" ]]
+}
+
+@test "wt --help lists 'help <command>' as opening one command's page (C6)" {
+    run "$WT_SCRIPT_DIR/wt.sh" --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"  help <command>   Show one command's page"* ]]
+}
+
+@test "bare 'wt' short usage mentions 'wt help <command>' (C7)" {
+    run "$WT_SCRIPT_DIR/wt.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"wt help <command>"* ]]
+}
+
+# ===== C8: already-shipped usage errors keep their wording end to end =====
+
+@test "wt bogus: unknown command, exit 2, empty stdout, one stderr line, nothing written to disk, holds with fzf absent from PATH (C8)" {
+    local shim home_dir
+    shim="$(mktemp -d)"
+    home_dir="$(mktemp -d)"
+    build_no_fzf_shim "$shim"
+
+    run --separate-stderr env -i HOME="$home_dir" PATH="$shim" \
+        WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
+        "$WT_SCRIPT_DIR/wt.sh" bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt: unknown command 'bogus' — see 'wt --help'" ]]
+    [[ ! -e "$home_dir/config" ]]
+    [[ ! -e "$home_dir/data" ]]
+}
+
+@test "wt db bogus: unknown subcommand, exit 2, empty stdout, stderr names 'wt db --help' (C8)" {
+    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
+}
+
+@test "bare wt db: missing subcommand, exit 2, empty stdout, usage line on stderr (C8)" {
+    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]" ]]
+}
+
+@test "wt create --bogus: unknown option, exit 2, empty stdout, stderr names 'wt create:' (C8)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" create --bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"wt create: unknown option '--bogus'"* ]]
+    [[ "$stderr" == *"see 'wt create --help'"* ]]
+}
+
+# ===== C9: 'wt ports <word>' / 'wt pr <word>' still read a bogus word as a
+# branch name, never as an unknown subcommand — the help routing above only
+# fires on the literal command word 'help'. =====
+
+@test "ports: a bogus word is read as a branch name, not an unknown subcommand (C9)" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    run cmd_ports -p "testproj" "nosuchbranch" 2>&1
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"no worktree for branch 'nosuchbranch'"* ]]
+    [[ "$output" != *"unknown subcommand"* ]]
+}
+
+@test "pr: a bogus word is read as a branch name, not an unknown subcommand (C9)" {
+    stub_gh "exit 1"
+
+    run cmd_pr "nosuchbranch" 2>&1
+    [[ "$output" == *"No PR found for branch: nosuchbranch"* ]]
+    [[ "$output" != *"unknown subcommand"* ]]
 }

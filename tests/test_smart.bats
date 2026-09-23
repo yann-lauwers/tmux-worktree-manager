@@ -10,13 +10,7 @@ setup() {
 
     # Stub gh on PATH so smart_pr_badge never reaches the network: it prints
     # the same JSON shape `gh pr list --json number,state,isDraft` would.
-    mkdir -p "$TEST_TMPDIR/bin"
-    cat > "$TEST_TMPDIR/bin/gh" <<'EOF'
-#!/bin/bash
-echo '{"number":42,"state":"OPEN","isDraft":false}'
-EOF
-    chmod +x "$TEST_TMPDIR/bin/gh"
-    PATH="$TEST_TMPDIR/bin:$PATH"
+    stub_gh "echo '{\"number\":42,\"state\":\"OPEN\",\"isDraft\":false}'"
 }
 
 teardown() {
