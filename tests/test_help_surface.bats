@@ -197,6 +197,39 @@ _wrap_attach_page() {
     [[ "$output" == *"ports clear"* ]]
 }
 
+@test "wt_short_flag_check reports zero violations on the real tree" {
+    run wt_short_flag_check "$WT_SCRIPT_DIR"
+    echo "$output"
+    [[ "$status" -eq 0 ]]
+    local count
+    count=$(printf '%s\n' "$output" | grep -c '^VIOLATION' || true)
+    [[ "$count" -eq 0 ]]
+}
+
+# Plants a collision by merging commands/init.sh's refusing "-n)" arm and its
+# live "--name)" arm into one live "-n|--name)" arm — -n already names
+# commands/logs.sh's --lines, so the merge makes -n map to two different
+# long flags across the tree.
+@test "control: a short letter mapped to two long flags is caught by name" {
+    local fixture="$TEST_TMPDIR/control-short-collision"
+    _copy_wt_tree "$fixture"
+
+    awk '
+        BEGIN { drop = 0 }
+        /^[[:space:]]*-n\)[[:space:]]*$/ { drop = 1; next }
+        drop && /^[[:space:]]*--name\)[[:space:]]*$/ { print "            -n|--name)"; drop = 0; next }
+        drop { next }
+        { print }
+    ' "$fixture/commands/init.sh" > "$fixture/commands/init.sh.tmp"
+    mv "$fixture/commands/init.sh.tmp" "$fixture/commands/init.sh"
+
+    run wt_short_flag_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"-n"* ]]
+    [[ "$output" == *"--lines"* ]]
+    [[ "$output" == *"--name"* ]]
+}
+
 @test "control: an undocumented flag added to cmd_attach is caught by name" {
     local fixture="$TEST_TMPDIR/control-flag"
     _copy_wt_tree "$fixture"
@@ -222,11 +255,14 @@ _wrap_attach_page() {
     run _wt_emit_arm "-s | --status" "die_unknown_option \"ls\" \"\$1\" \"use -q\""$'\n'
     [[ "$status" -eq 0 ]]
     [[ -z "$output" ]]
+    [[ "$output" != *ALIASES* ]]
 
-    # control: the same header with a live body is surface
+    # control: the same header with a live body is surface, and carries the
+    # ALIASES row wt_short_flag_check reads its short/long grouping from.
     run _wt_emit_arm "-s | --status" "smart_quick=false"$'\n'"shift"$'\n'
     [[ "$output" == *$'FLAG\t-s\t0'* ]]
     [[ "$output" == *$'FLAG\t--status\t0'* ]]
+    [[ "$output" == *$'ALIASES\t-s,--status'* ]]
 }
 
 @test "control: a page missing its Exit codes: block is caught by name" {
@@ -411,6 +447,27 @@ _wrap_attach_page() {
     [[ "$output" != *"-a --all"* ]]
     run grep -n "start|up)" -A 8 "$WT_SCRIPT_DIR/completions/wt.zsh"
     [[ "$output" != *"'(-a --all)'"* ]]
+}
+
+@test "open -a/--all is gone from both completion scripts" {
+    run grep -n "open|o)" -A 4 "$WT_SCRIPT_DIR/completions/wt.bash"
+    [[ "$output" != *"-a --all"* ]]
+    run grep -n "open|o)" -A 8 "$WT_SCRIPT_DIR/completions/wt.zsh"
+    [[ "$output" != *"'(-a --all)'"* ]]
+}
+
+@test "status --services is gone from both completion scripts" {
+    run grep -n "status|st)" -A 4 "$WT_SCRIPT_DIR/completions/wt.bash"
+    [[ "$output" != *"--services"* ]]
+    run grep -n "status|st)" -A 8 "$WT_SCRIPT_DIR/completions/wt.zsh"
+    [[ "$output" != *"--services"* ]]
+}
+
+@test "init -n is gone from both completion scripts" {
+    run grep -n "^        init)" -A 4 "$WT_SCRIPT_DIR/completions/wt.bash"
+    [[ "$output" != *"-n --name"* ]]
+    run grep -n "^                init)" -A 8 "$WT_SCRIPT_DIR/completions/wt.zsh"
+    [[ "$output" != *"'(-n --name)'"* ]]
 }
 
 @test "_wt_help_requested takes the early path for a subcommand's own --help (C2)" {

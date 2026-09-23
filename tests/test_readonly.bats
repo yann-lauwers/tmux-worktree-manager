@@ -161,7 +161,7 @@ _assert_readonly() {
     local before_state
     before_state=$(_state_hash "testproj")
 
-    run cmd_status -p "testproj" "feature/live" --services
+    run cmd_status -p "testproj" "feature/live"
     [[ "$output" == *"stopped"* ]]
 
     # The state file is unchanged — the display computed "stopped" at read time.
