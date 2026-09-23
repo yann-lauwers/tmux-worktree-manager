@@ -114,7 +114,7 @@ _wt_completions() {
             fi
             ;;
         ls)
-            _wt_compreply_from "-p --project -q --quick -h --help" "$cur"
+            _wt_compreply_from "-p --project -q --quick --json -h --help" "$cur"
             ;;
         rm)
             if [[ "$cur" == -* ]]; then
@@ -169,7 +169,7 @@ _wt_completions() {
             ;;
         status|st)
             if [[ "$cur" == -* ]]; then
-                _wt_compreply_from "--services -p --project -h --help" "$cur"
+                _wt_compreply_from "--services --json -p --project -h --help" "$cur"
             else
                 local worktrees
                 worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -178,7 +178,7 @@ _wt_completions() {
             ;;
         health|hc)
             if [[ "$cur" == -* ]]; then
-                _wt_compreply_from "-t --timeout -p --project -h --help" "$cur"
+                _wt_compreply_from "-t --timeout --json -p --project -h --help" "$cur"
             else
                 local worktrees
                 worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -214,7 +214,7 @@ _wt_completions() {
             ;;
         ports)
             if [[ "$cur" == -* ]]; then
-                _wt_compreply_from "-c --check -p --project -h --help" "$cur"
+                _wt_compreply_from "-c --check --json -p --project -h --help" "$cur"
             else
                 # First positional could be set/clear subcommand or branch
                 local worktrees
@@ -263,7 +263,7 @@ _wt_completions() {
             fi
             ;;
         doctor|doc)
-            _wt_compreply_from "-p --project -h --help" "$cur"
+            _wt_compreply_from "-p --project --json -h --help" "$cur"
             ;;
         list)
             _wt_compreply_from "-p --project --status --json -h --help" "$cur"
