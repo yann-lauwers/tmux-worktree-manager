@@ -1048,7 +1048,36 @@ hooks:
 @test "pr: a bogus word is read as a branch name, not an unknown subcommand (C9)" {
     stub_gh "exit 1"
 
-    run cmd_pr "nosuchbranch" 2>&1
-    [[ "$output" == *"No PR found for branch: nosuchbranch"* ]]
-    [[ "$output" != *"unknown subcommand"* ]]
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr nosuchbranch
+    [[ "$status" -eq 1 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"No PR found for branch: nosuchbranch"* ]]
+    [[ "$stderr" != *"unknown subcommand"* ]]
+}
+
+@test "pr <branch>: PR found exits 0 and prints its URL" {
+    stub_gh 'if [[ "$1" == "pr" && "$2" == "view" ]]; then echo "https://github.com/o/r/pull/1"; else exit 1; fi'
+    for opener in open xdg-open; do
+        printf '#!/bin/bash\nexit 0\n' > "$TEST_TMPDIR/bin/$opener"
+        chmod +x "$TEST_TMPDIR/bin/$opener"
+    done
+
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr feature/auth
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"https://github.com/o/r/pull/1"* ]]
+}
+
+@test "pr --bogus: unknown option, exit 2" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr --bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"wt pr: unknown option '--bogus'"* ]]
+}
+
+@test "pr: no branch given and none detected outside any worktree, exit 1" {
+    cd "$TEST_TMPDIR"
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr
+    [[ "$status" -eq 1 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"Not in a worktree and no branch specified"* ]]
 }

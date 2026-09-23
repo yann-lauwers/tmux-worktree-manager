@@ -63,6 +63,7 @@ EOF
 
 # Parse `wt pr [branch]` arguments and open that branch's PR in the browser.
 # Args: $1 branch (optional; auto-detected from a worktree when omitted), plus flags
+# Side: dies (exit 1) with no branch detected and none given; returns 1 (warning on stderr) when no PR is found
 _pr_open() {
     local branch=""
 
@@ -111,6 +112,7 @@ _pr_open() {
         fi
     else
         log_warn "No PR found for branch: $branch"
+        return 1
     fi
 }
 
