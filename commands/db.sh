@@ -498,8 +498,7 @@ cmd_db_use_remote() {
     local worktree_path
     worktree_path=$(get_worktree_path "$project" "$branch")
     if [[ -z "$worktree_path" ]] || [[ ! -d "$worktree_path" ]]; then
-        log_error "Worktree path not found for branch: $branch"
-        return 1
+        die_no_worktree "db use-remote" "$branch" "$project"
     fi
 
     local repo_path

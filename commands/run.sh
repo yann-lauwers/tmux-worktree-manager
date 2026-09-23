@@ -48,7 +48,7 @@ cmd_run() {
 
     # Verify worktree exists
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
+        die_no_worktree "run" "$branch" "$project"
     fi
 
     local wt_path
