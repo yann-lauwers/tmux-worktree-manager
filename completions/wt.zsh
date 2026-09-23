@@ -56,6 +56,13 @@ _wt() {
         'detach:Alias for use-remote'
     )
 
+    local -a pr_subcommands
+    pr_subcommands=(
+        'conflicts:List open PRs with merge conflicts'
+        'c:List open PRs with merge conflicts (alias)'
+        'resolve:Rebase or merge a conflicting PR onto its base'
+    )
+
     # Function to get worktree branches
     _wt_worktrees() {
         worktrees=(${(f)"$(git worktree list --porcelain 2>/dev/null | grep '^branch' | sed 's|branch refs/heads/||')"})
@@ -96,6 +103,18 @@ _wt() {
         _describe 'db subcommand' db_subcommands
     }
 
+    # Function to complete `wt pr`'s subcommand words
+    _wt_pr_subcommands() {
+        _describe 'pr subcommand' pr_subcommands
+    }
+
+    # Function to complete `wt pr`'s first word: a subcommand or a branch
+    _wt_pr_first_arg() {
+        _alternative \
+            'subcommands:pr subcommand:_wt_pr_subcommands' \
+            'branches:branch:_wt_worktrees'
+    }
+
     # Main completion logic
     _arguments -C \
         '1: :->command' \
@@ -125,9 +144,27 @@ _wt() {
                         '1:branch:_wt_worktrees'
                     ;;
                 pr)
-                    _arguments \
-                        '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:branch:_wt_worktrees'
+                    case "$words[2]" in
+                        conflicts|c)
+                            _arguments \
+                                '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                                '(-a --all)'{-a,--all}'[All projects]' \
+                                '(-q --quick)'{-q,--quick}'[Omit the closing resolve hint]' \
+                                '(-h --help)'{-h,--help}'[Show help]'
+                            ;;
+                        resolve)
+                            _arguments \
+                                '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                                '(-a --all)'{-a,--all}'[All projects]' \
+                                '(-h --help)'{-h,--help}'[Show help]' \
+                                '1:branch:_wt_worktrees'
+                            ;;
+                        *)
+                            _arguments \
+                                '(-h --help)'{-h,--help}'[Show help]' \
+                                '1: :_wt_pr_first_arg'
+                            ;;
+                    esac
                     ;;
                 create|c)
                     _arguments \
