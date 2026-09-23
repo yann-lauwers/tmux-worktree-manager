@@ -23,6 +23,7 @@ export WT_SCRIPT_DIR
 
 # Source library modules
 source "${WT_SCRIPT_DIR}/lib/utils.sh"
+source "${WT_SCRIPT_DIR}/lib/json.sh"
 source "${WT_SCRIPT_DIR}/lib/version.sh"
 source "${WT_SCRIPT_DIR}/lib/config.sh"
 source "${WT_SCRIPT_DIR}/lib/port.sh"

@@ -386,6 +386,23 @@ redact_db_url() {
     echo "$1" | sed -E 's|(://[^:/@]+):[^@]*@|\1:****@|'
 }
 
+# Split a resolved DB URL (postgresql://user[:pass]@host:port/name) into its
+# display components. Shared by `wt status` and `wt ports`, human and --json
+# alike, so the parse stays one place.
+# Args: $1 db url
+# Out: host, port, user, name as one line of \x1f-separated fields (a component
+#      sed finds nothing for comes back empty, never the raw URL)
+parse_db_url_components() {
+    local db_url="$1"
+    local db_user db_host db_port db_name
+    db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+    db_user="${db_user%%:*}"
+    db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+    db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+    db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+    printf '%s\x1f%s\x1f%s\x1f%s\n' "$db_host" "$db_port" "$db_user" "$db_name"
+}
+
 # List all configured projects
 list_projects() {
     for config_file in "$WT_PROJECTS_DIR"/*.yaml; do

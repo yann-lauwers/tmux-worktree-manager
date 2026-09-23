@@ -10,6 +10,9 @@ cmd_doctor() {
     local passed=0
     local failed=0
     local warnings=0
+    local json_output=0
+    local section=""
+    local check_idx=0
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -19,6 +22,7 @@ cmd_doctor() {
                 project="$2"
                 shift 2
                 ;;
+            --json) json_output=1; shift ;;
             -h|--help)
                 show_doctor_help
                 return 0
@@ -32,23 +36,29 @@ cmd_doctor() {
         esac
     done
 
-    echo ""
-    echo -e "${BOLD}wt doctor${NC}"
-    echo "$(printf '%.0s-' {1..50})"
-    echo ""
+    if [[ "$json_output" -eq 1 ]]; then
+        json_begin
+        json_set ".project" null
+        json_set ".checks" arr
+    else
+        echo ""
+        echo -e "${BOLD}wt doctor${NC}"
+        echo "$(printf '%.0s-' {1..50})"
+        echo ""
+    fi
 
     # --- 1. Dependencies ---
-    echo -e "${BOLD}Dependencies${NC}"
+    _doctor_section "dependencies" "Dependencies"
 
     _doctor_check_cmd "git" "brew install git"
     _doctor_check_cmd "yq" "brew install yq"
     _doctor_check_cmd "tmux" "brew install tmux"
     _doctor_check_cmd "envsubst" "brew install gettext"
 
-    echo ""
+    _doctor_echo ""
 
     # --- 2. Project config ---
-    echo -e "${BOLD}Project Configuration${NC}"
+    _doctor_section "project_configuration" "Project Configuration"
 
     # Resolve project (soft fail for doctor)
     if [[ -z "$project" ]]; then
@@ -57,9 +67,10 @@ cmd_doctor() {
 
     if [[ -z "$project" ]]; then
         _doctor_warn "Could not detect project (not in a git repo with wt config)"
-        echo ""
+        _doctor_echo ""
     else
         _doctor_pass "Project detected: $project"
+        [[ "$json_output" -eq 1 ]] && json_set ".project" str "$project"
 
         local config_file
         config_file=$(project_config_path "$project")
@@ -148,10 +159,10 @@ cmd_doctor() {
             _doctor_fail "Config file not found: $config_file"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 3. State consistency ---
-        echo -e "${BOLD}State Consistency${NC}"
+        _doctor_section "state_consistency" "State Consistency"
 
         local state_f
         state_f=$(state_file "$project")
@@ -207,16 +218,16 @@ cmd_doctor() {
             _doctor_warn "No state file found (no worktrees created yet?)"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 4. Worktree links ---
-        echo -e "${BOLD}Worktree Links${NC}"
+        _doctor_section "worktree_links" "Worktree Links"
         _doctor_check_links "$(expand_path "$(yaml_get "$config_file" ".repo_path" "")")"
 
-        echo ""
+        _doctor_echo ""
 
         # --- 5. Tmux health ---
-        echo -e "${BOLD}Tmux Health${NC}"
+        _doctor_section "tmux_health" "Tmux Health"
 
         if command_exists tmux; then
             if [[ -f "$config_file" ]]; then
@@ -246,10 +257,10 @@ cmd_doctor() {
             _doctor_fail "tmux is not installed"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 5. Port conflicts ---
-        echo -e "${BOLD}Port Conflicts${NC}"
+        _doctor_section "port_conflicts" "Port Conflicts"
 
         if [[ -f "$config_file" ]]; then
             local all_ports=""
@@ -300,9 +311,17 @@ $svc_name@$sanitized_branch:$effective_port"
     fi
 
     # --- Summary ---
-    echo ""
-    echo "$(printf '%.0s-' {1..50})"
-    echo -e "${BOLD}Summary:${NC} ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC}, ${YELLOW}$warnings warnings${NC}"
+    if [[ "$json_output" -eq 1 ]]; then
+        json_set ".summary.passed" int "$passed"
+        json_set ".summary.failed" int "$failed"
+        json_set ".summary.warnings" int "$warnings"
+        json_set ".ok" bool "$([[ "$failed" -eq 0 ]] && echo true || echo false)"
+        json_emit
+    else
+        echo ""
+        echo "$(printf '%.0s-' {1..50})"
+        echo -e "${BOLD}Summary:${NC} ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC}, ${YELLOW}$warnings warnings${NC}"
+    fi
 
     if [[ "$failed" -gt 0 ]]; then
         return 1
@@ -310,19 +329,65 @@ $svc_name@$sanitized_branch:$effective_port"
     return 0
 }
 
-# Helper functions for doctor output
+# Append one row to the pending --json document's .checks array, under the
+# section the caller's section variable currently names.
+# Args: $1 section, $2 status (pass|fail|warn), $3 message
+# Side: json_set calls against .checks[check_idx]; increments check_idx
+_doctor_json_row() {
+    local sec="$1"
+    local status="$2"
+    local message="$3"
+    local base=".checks[$check_idx]"
+
+    json_set "${base}.section" str "$sec"
+    json_set "${base}.status" str "$status"
+    json_set "${base}.message" str "$message"
+    check_idx=$((check_idx + 1))
+}
+
+# Print a human-report line; prints nothing under --json. The report's only
+# echo point outside the check rows, so --json stdout stays the document alone.
+# Args: $@ echo -e arguments
+_doctor_echo() {
+    [[ "${json_output:-0}" -eq 1 ]] || echo -e "$@"
+}
+
+# Open one report section: name it for the --json rows that follow, and print
+# its header in the human report.
+# Args: $1 section key (e.g. dependencies), $2 human header
+# Side: sets cmd_doctor's section local
+_doctor_section() {
+    section="$1"
+    _doctor_echo "${BOLD}$2${NC}"
+}
+
+# Helper functions for doctor output — the single print point: in JSON mode
+# each appends a row instead of echoing (json_output/section/check_idx are the
+# caller's locals, visible here through cmd_doctor's own call stack).
 _doctor_pass() {
-    echo -e "  ${GREEN}PASS${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "pass" "$1"
+    else
+        echo -e "  ${GREEN}PASS${NC}  $1"
+    fi
     passed=$((passed + 1))
 }
 
 _doctor_fail() {
-    echo -e "  ${RED}FAIL${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "fail" "$1"
+    else
+        echo -e "  ${RED}FAIL${NC}  $1"
+    fi
     failed=$((failed + 1))
 }
 
 _doctor_warn() {
-    echo -e "  ${YELLOW}WARN${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "warn" "$1"
+    else
+        echo -e "  ${YELLOW}WARN${NC}  $1"
+    fi
     warnings=$((warnings + 1))
 }
 
@@ -470,11 +535,23 @@ Checks performed:
 
 Options:
   -p, --project <name>   Project to act on (default: detected from the current directory)
+  --json                  Print one JSON document instead of PASS/FAIL/WARN lines (default: off)
   -h, --help              Show this page
+
+Output (--json):
+  { project, checks: [ { section, status, message } ], summary: { passed,
+    failed, warnings }, ok }
+
+  project is the detected project name, or null. section is one of
+  dependencies, project_configuration, state_consistency, worktree_links,
+  tmux_health, port_conflicts. status is "pass", "fail" or "warn". ok is
+  true when failed == 0 — the same condition that decides the exit code
+  below, so --json exits the same way the PASS/FAIL/WARN form does.
 
 Examples:
   wt doctor
   wt doctor -p myproject
+  wt doctor --json
 
 Aliases: wt doc
 
