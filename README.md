@@ -108,11 +108,18 @@ wt delete feature/auth
 | `wt start [branch]` | Start services |
 | `wt stop <branch> --all` | Stop services |
 | `wt status <branch>` | Show worktree status |
+| `wt health [branch]` | Live-probe services right now and report per-service health |
 | `wt attach <branch>` | Attach to tmux session |
+| `wt run <branch> <step-name>` | Re-run one named setup step from the project config |
+| `wt exec <branch> <command...>` | Run a command inside a worktree, unparsed |
 | `wt ports <branch>` | Show port assignments |
+| `wt send [branch] <service\|pane_index> <command...>` | Send a command string to one tmux pane |
+| `wt logs [branch] [service\|pane_index]` | Print the tail of a service's or pane's output |
+| `wt panes [branch]` | List a worktree's tmux panes |
 | `wt doctor` | Run diagnostic checks |
 | `wt init` | Initialize project configuration |
 | `wt config [--edit]` | View/edit configuration |
+| `wt db <subcommand>` | Manage the ephemeral Postgres: `reset`, `use-remote`/`detach`, `dump`, `url` |
 
 Run `wt <command> --help`, or `wt help <command>`, for detailed usage of any command.
 

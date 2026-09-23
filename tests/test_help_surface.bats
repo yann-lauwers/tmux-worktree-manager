@@ -15,8 +15,9 @@ teardown() {
     teardown_test_dirs
 }
 
-# Copy wt.sh, lib/ and commands/ into a fresh directory so a control can
-# mutate a page or a parser without touching the real source tree.
+# Copy wt.sh, lib/, commands/, README.md and completions/ into a fresh
+# directory so a control can mutate a page, a parser, README's command
+# tables or a completion script without touching the real source tree.
 # Args: $1 destination directory (created if absent)
 _copy_wt_tree() {
     local dest="$1"
@@ -24,6 +25,8 @@ _copy_wt_tree() {
     cp "$WT_SCRIPT_DIR/wt.sh" "$dest/wt.sh"
     cp -R "$WT_SCRIPT_DIR/lib" "$dest/lib"
     cp -R "$WT_SCRIPT_DIR/commands" "$dest/commands"
+    cp "$WT_SCRIPT_DIR/README.md" "$dest/README.md"
+    cp -R "$WT_SCRIPT_DIR/completions" "$dest/completions"
 }
 
 # Rewrite a fixture copy's commands/attach.sh into a page that conforms to
@@ -344,13 +347,63 @@ _wrap_attach_page() {
     [[ "$output" == "0" ]]
 }
 
-@test "shell completions name db (C16)" {
-    run grep -c '\bdb\b' "$WT_SCRIPT_DIR/completions/wt.bash"
+@test "wt_surface_docs_check exits 0 with zero violations on the real tree" {
+    run wt_surface_docs_check "$WT_SCRIPT_DIR"
+    echo "$output"
     [[ "$status" -eq 0 ]]
-    [[ "$output" != "0" ]]
-    run grep -c 'db' "$WT_SCRIPT_DIR/completions/wt.zsh"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" != "0" ]]
+    local count
+    count=$(printf '%s\n' "$output" | grep -c '^VIOLATION' || true)
+    [[ "$count" -eq 0 ]]
+}
+
+@test "control: a command removed from README's tables is caught by name" {
+    local fixture="$TEST_TMPDIR/control-readme"
+    _copy_wt_tree "$fixture"
+
+    awk '/`wt doctor`/ { next } { print }' "$fixture/README.md" > "$fixture/README.md.tmp"
+    mv "$fixture/README.md.tmp" "$fixture/README.md"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION doctor: not in README.md's command tables"* ]]
+}
+
+@test "control: a word removed from the bash completion is caught by name" {
+    local fixture="$TEST_TMPDIR/control-bash"
+    _copy_wt_tree "$fixture"
+
+    sed -i.bak 's/ hc / /' "$fixture/completions/wt.bash"
+    rm -f "$fixture/completions/wt.bash.bak"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION hc: not offered by completions/wt.bash"* ]]
+}
+
+@test "control: an entry removed from the zsh completion is caught by name" {
+    local fixture="$TEST_TMPDIR/control-zsh"
+    _copy_wt_tree "$fixture"
+
+    awk '/^        .db:Manage a worktree/ { next } { print }' "$fixture/completions/wt.zsh" > "$fixture/completions/wt.zsh.tmp"
+    mv "$fixture/completions/wt.zsh.tmp" "$fixture/completions/wt.zsh"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION db: not offered by completions/wt.zsh"* ]]
+}
+
+@test "control: README is checked by canonical name, so an alias row does not stand in for it" {
+    local fixture="$TEST_TMPDIR/control-alias"
+    _copy_wt_tree "$fixture"
+
+    sed -i.bak 's/`wt status /`wt st /' "$fixture/README.md"
+    rm -f "$fixture/README.md.bak"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION status: not in README.md's command tables"* ]]
+    [[ "$output" != *"VIOLATION st:"* ]]
+    [[ "$output" != *"VIOLATION up:"* ]]
 }
 
 @test "start -a/--all is gone from both completion scripts" {

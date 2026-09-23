@@ -4,7 +4,10 @@
 # contract: a description paragraph, every flag documented with its default,
 # every subcommand named, and an Exit codes block. Never a hand-kept list — a
 # command, subcommand or flag added to wt.sh/commands/*.sh with no page fails
-# `wt_surface_check` by name.
+# `wt_surface_check` by name. It also checks README.md's command tables and
+# both shell completion scripts against the same top-level-command discovery
+# (`wt_surface_docs_check`) — a command added to main()'s dispatch with no
+# README row, or missing from either completion, fails by name.
 #
 # Discovery reads `declare -f` output, which bash normalises so every case arm
 # header is its own line ("tok1 | tok2)") and every arm ends with a lone ";;"
@@ -662,6 +665,131 @@ wt_surface_check() {
         fi
 
         rm -f "$out_h" "$out_hh" "$uo_out" "$uo_err"
+    done
+
+    if [[ $violation_count -gt 0 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# ─── README and completions checks ─────────────────────────────────────────
+#
+# Scoped to top-level commands only — the words main()'s own dispatch case
+# routes (_wt_build_units COMMAND rows) — never a SUBCOMMAND row. A word
+# routed by a command's own internal case (wt db reset, wt pr conflicts) is
+# out of this contract's scope; only main()'s second case is.
+
+# Extract the markdown under README's "## Commands" heading, up to the next
+# "## " heading — the region wt_surface_docs_check's README check reads.
+# Args: $1 root
+# Out: that region's text (empty when README.md is absent or carries no such heading)
+_wt_docs_readme_commands_section() {
+    local root="$1"
+    [[ -f "$root/README.md" ]] || return 0
+    awk '
+        /^## Commands/ { insec=1; next }
+        insec && /^## / { exit }
+        insec { print }
+    ' "$root/README.md"
+}
+
+# True when a canonical command name has a row in the README commands
+# section: some row's text names `` `wt <name>` `` followed by a space, a
+# closing backtick, or the end of the text. Matched in-shell, no fork per name.
+# Args: $1 commands-section text, $2 canonical name
+_wt_docs_readme_has_command() {
+    local section="$1" name="$2"
+    local re="\`wt ${name}([[:space:]\`]|\$)"
+    [[ "$section" =~ $re ]]
+}
+
+# Extract the bash completion's flat top-level word list — the value of
+# `local commands="..."` in completions/wt.bash.
+# Args: $1 root
+# Out: the space-separated word list (empty when the file or the line is absent)
+_wt_docs_bash_commands() {
+    local root="$1"
+    [[ -f "$root/completions/wt.bash" ]] || return 0
+    sed -n 's/^[[:space:]]*local commands="\(.*\)"$/\1/p' "$root/completions/wt.bash" | head -1
+}
+
+# Extract the zsh completion's top-level `commands=( ... )` array entries —
+# never `db_subcommands`, which sits in its own array further down.
+# Args: $1 root
+# Out: one `'<word>:<desc>'` entry per line, as written in the array
+_wt_docs_zsh_commands_block() {
+    local root="$1"
+    [[ -f "$root/completions/wt.zsh" ]] || return 0
+    awk '
+        /^[[:space:]]*commands=\(/ { insec=1; next }
+        insec && /^[[:space:]]*\)/ { exit }
+        insec { print }
+    ' "$root/completions/wt.zsh"
+}
+
+# True when a word is present as one array entry's own leading token
+# ('word:description' or 'word:desc...') in a zsh commands=( ... ) block.
+# Matched in-shell against the block with a newline in front, so the first
+# entry reads like every other one — no fork per word.
+# Args: $1 block text, $2 word
+_wt_docs_zsh_block_has_word() {
+    local block="$1" word="$2"
+    local re=$'\n'"[[:space:]]*'${word}:"
+    [[ $'\n'"$block" =~ $re ]]
+}
+
+# Check every top-level command discovered from source (COMMAND rows only —
+# never a SUBCOMMAND row main()'s own case does not route) against README's
+# command tables and both completion scripts. Prints one line per violation,
+# returns non-zero when any were printed.
+# Args: $1 root
+# Out: nothing but VIOLATION lines; return 0 clean, 1 any violation printed
+wt_surface_docs_check() {
+    local root="$1"
+    local violation_count=0
+
+    local -a units=()
+    while IFS= read -r line; do
+        units+=("$line")
+    done < <(_wt_build_units "$root")
+
+    if [[ ${#units[@]} -eq 0 ]]; then
+        echo "VIOLATION discovery produced no commands at all"
+        return 1
+    fi
+
+    local readme_section bash_commands zsh_block
+    readme_section=$(_wt_docs_readme_commands_section "$root")
+    bash_commands=$(_wt_docs_bash_commands "$root")
+    zsh_block=$(_wt_docs_zsh_commands_block "$root")
+
+    local unit
+    for unit in "${units[@]}"; do
+        local u_kind u_invoke u_display u_flags u_subwords
+        IFS='|' read -r u_kind u_invoke u_display u_flags u_subwords <<< "$unit"
+        [[ "$u_kind" != "COMMAND" ]] && continue
+
+        local -a all_words=()
+        IFS=',' read -ra all_words <<< "$u_display"
+        local canonical="${all_words[0]}"
+
+        if ! _wt_docs_readme_has_command "$readme_section" "$canonical"; then
+            echo "VIOLATION ${canonical}: not in README.md's command tables"
+            violation_count=$((violation_count + 1))
+        fi
+
+        local word
+        for word in "${all_words[@]}"; do
+            if [[ " $bash_commands " != *" $word "* ]]; then
+                echo "VIOLATION ${word}: not offered by completions/wt.bash"
+                violation_count=$((violation_count + 1))
+            fi
+            if ! _wt_docs_zsh_block_has_word "$zsh_block" "$word"; then
+                echo "VIOLATION ${word}: not offered by completions/wt.zsh"
+                violation_count=$((violation_count + 1))
+            fi
+        done
     done
 
     if [[ $violation_count -gt 0 ]]; then
