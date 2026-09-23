@@ -359,3 +359,6 @@ timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+
+# Planted for validating #18 (C13): an unquoted expansion the CI shellcheck job must refuse. Never merged.
+planted_sc2086_probe() { rm $1; }
