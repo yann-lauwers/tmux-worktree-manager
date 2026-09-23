@@ -1,0 +1,3 @@
+# Severity is set on the invocation in scripts/shellcheck.sh (-S info) — the
+# rc file format takes no severity key.
+shell=bash

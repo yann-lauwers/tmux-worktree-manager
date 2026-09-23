@@ -15,6 +15,12 @@ _WT_ESC_BOLD='\033[1m'
 _WT_ESC_DIM='\033[2m'
 _WT_ESC_NC='\033[0m' # No Color
 
+# OSC 8 hyperlink open/close, as real ESC bytes (not \033 text) — consumed
+# through %s to build a link_start/link_end pair, unlike the %b-driven colors
+# above.
+_WT_OSC8_OPEN=$'\e]8;;'
+_WT_OSC8_ST=$'\e\\'
+
 # Decide whether one stream gets colour. WT_COLOR=always wins outright —
 # including over a piped stream. Failing that, a non-empty NO_COLOR (an empty
 # NO_COLOR= counts as unset, per no-color.org) turns colour off regardless of
@@ -301,6 +307,19 @@ with_file_lock() {
     "$@" || rc=$?
     rm -rf "$lock_dir"
     return $rc
+}
+
+# Export VARNAME to a command's stdout, or to whatever a failed substitution captured with
+# its exit status forced to 0 — matching `export VAR="$(cmd)"`, whose own status is the
+# assignment's, so a failing cmd was already masked before this helper existed.
+# Args: $1 VARNAME, $2.. cmd and its args
+# Side: exports $1 in the caller's shell
+export_or_empty() {
+    local __eoe_varname="$1"
+    shift
+    local __eoe_value
+    __eoe_value="$("$@")" || true
+    export "${__eoe_varname}=${__eoe_value}"
 }
 
 # Check if port is in use

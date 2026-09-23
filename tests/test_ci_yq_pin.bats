@@ -2,6 +2,8 @@
 # tests/test_ci_yq_pin.bats - Pins the yq release CI tests against: the
 # workflow names it once, as env.YQ_VERSION, and CONTRIBUTING.md names that
 # same release, so bumping one without the other fails the suite on both legs.
+# Scoped to yq's own v4.x.y pins — ci.yml also pins shellcheck (v0.x.y, guarded
+# by tests/test_ci_shellcheck_pin.bats), which a bare semver grep would count here too.
 # Reads source text only — nothing is downloaded or executed.
 
 load test_helper
@@ -20,7 +22,7 @@ _pinned_yq() {
     pinned="$(_pinned_yq)"
     [[ "$pinned" =~ ^v4\.[0-9]+\.[0-9]+$ ]]
 
-    run grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' "$CI_YML"
+    run grep -oE 'v4\.[0-9]+\.[0-9]+' "$CI_YML"
     [ "$status" -eq 0 ]
     [ "$output" = "$pinned" ]
 }

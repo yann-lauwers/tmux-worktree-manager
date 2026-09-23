@@ -162,7 +162,7 @@ cmd_create() {
     if [[ "$has_db_steps" == "true" ]] && [[ -z "$no_db" ]] && [[ "$no_setup" -eq 0 ]]; then
         # Interactive prompt
         local reply
-        printf "${BOLD}Spin up ephemeral DB?${NC} [Y/n] "
+        printf '%b' "${BOLD}Spin up ephemeral DB?${NC} [Y/n] "
         read -r reply </dev/tty
         reply="${reply:-y}"
         if [[ "$reply" =~ ^[Nn] ]]; then
@@ -314,6 +314,7 @@ _cmd_create_core() {
     local _create_cleanup_slot=""
     local _create_cleanup_wt_path=""
 
+    # shellcheck disable=SC2329 # invoked indirectly via `trap _create_cleanup INT TERM` below
     _create_cleanup() {
         if [[ -n "$_create_cleanup_slot" ]]; then
             log_warn "Interrupted — cleaning up partial state..."
