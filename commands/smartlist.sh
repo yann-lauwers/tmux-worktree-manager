@@ -21,7 +21,9 @@ cmd_smartlist() {
                 shift 2
                 ;;
             -q|--quick) smart_quick=true; shift ;;
-            -s|--status) smart_quick=false; shift ;;
+            -s|--status)
+                die_unknown_option "ls" "$1" "ls shows PR status by default, use -q to skip it"
+                ;;
             -h|--help)
                 show_ls_help
                 return 0
@@ -138,8 +140,7 @@ Usage: wt ls [options]
 
 Options:
   -p, --project <name>   Restrict to one project (default: all projects)
-  -q, --quick             Skip the PR-status lookup (default: off)
-  -s, --status            Fetch PR status (default: on — cancels an earlier -q)
+  -q, --quick             Skip the PR-status lookup (default: off — ls shows PR status by default)
   -h, --help              Show this page
 
 Examples:

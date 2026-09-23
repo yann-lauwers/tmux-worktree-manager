@@ -134,10 +134,12 @@ die_usage() {
 }
 
 # Die with the standard unknown-option line for a command or subcommand.
-# Args: $1 cmd-words, $2 the rejected flag
+# Args: $1 cmd-words, $2 the rejected flag, $3 hint naming the flag to use instead (optional)
 # Side: writes to stderr, exits 2 (via die_usage)
 die_unknown_option() {
-    die_usage "$1" "unknown option '$2'"
+    local detail="unknown option '$2'"
+    [[ -n "${3:-}" ]] && detail="$detail — $3"
+    die_usage "$1" "$detail"
 }
 
 # The listing command every not-found message below points a reader at.

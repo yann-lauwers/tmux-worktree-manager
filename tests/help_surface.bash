@@ -66,7 +66,9 @@ _wt_fn_body() {
 #     the first cmd_* token in the body is the handler.
 #   FLAG <token> <takes_value:0|1>          — one line per token in an arm
 #     whose tokens all start with '-', dropping -*, --, -h and --help; a body
-#     containing "shift 2" marks the flag as taking a value.
+#     containing "shift 2" marks the flag as taking a value. An arm whose body
+#     calls die_unknown_option refuses its flags — a removed flag answered with
+#     a hint — so it emits nothing: a refused flag is owed no Options: line.
 # An arm matching neither shape (mixed tokens, or a word-only arm whose body
 # never calls cmd_*) is silently skipped — it is not part of the discoverable
 # surface (e.g. cmd_ports's own `set|clear)` arm just sets a local variable;
@@ -149,6 +151,7 @@ _wt_emit_arm() {
     fi
 
     if [[ $all_dash -eq 1 ]]; then
+        [[ "$body" == *die_unknown_option* ]] && return
         local takes_value=0
         [[ "$body" == *"shift 2"* ]] && takes_value=1
         for t in "${toks[@]}"; do
