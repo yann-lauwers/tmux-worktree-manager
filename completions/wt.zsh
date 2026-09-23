@@ -249,7 +249,6 @@ _wt() {
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-q --quick)'{-q,--quick}'[Skip PR status check]' \
-                        '(-s --status)'{-s,--status}'[Show PR status (default)]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 rm)
@@ -264,7 +263,7 @@ _wt() {
                 list)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-s --status)'{-s,--status}'[Show status information]' \
+                        '--status[Show status information]' \
                         '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
