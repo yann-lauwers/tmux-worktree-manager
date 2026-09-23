@@ -17,6 +17,7 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/init.sh"
     source "$WT_SCRIPT_DIR/commands/config.sh"
     source "$WT_SCRIPT_DIR/commands/list.sh"
+    source "$WT_SCRIPT_DIR/commands/smartlist.sh"
     source "$WT_SCRIPT_DIR/commands/status.sh"
     source "$WT_SCRIPT_DIR/commands/health.sh"
     source "$WT_SCRIPT_DIR/commands/ports.sh"
@@ -118,6 +119,12 @@ hooks:
     [[ "$output" == *"list"* ]] || [[ "$output" == *"List"* ]]
 }
 
+@test "list: --help shows --status with no -s short form" {
+    run cmd_list --help
+    [[ "$output" == *"--status"* ]]
+    [[ "$output" != *"-s,"* ]]
+}
+
 @test "list: shows empty state for new project" {
     _create_test_config "testproj"
     run cmd_list -p "testproj" 2>&1
@@ -138,6 +145,64 @@ hooks:
     [[ "$status" -eq 0 ]]
     # Should contain JSON array bracket
     [[ "$output" == *"["* ]]
+}
+
+@test "list: -s is refused as unknown option, naming --status" {
+    run cmd_list -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt list: unknown option '-s'"* ]]
+    [[ "$output" == *"--status"* ]]
+}
+
+@test "list: -s with a value is refused the same way" {
+    run cmd_list -s running 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt list: unknown option '-s'"* ]]
+    [[ "$output" == *"--status"* ]]
+}
+
+@test "list: --status prints the session and dirty-tree columns" {
+    _create_test_config "testproj"
+    create_worktree_state "testproj" "main" "$TEST_REPO" 0
+    run cmd_list -p "testproj" --status 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"SESSION"* ]]
+    [[ "$output" == *"STATUS"* ]]
+}
+
+# ===== ls command =====
+
+@test "ls: shows help with --help" {
+    run cmd_smartlist --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls: --help shows neither -s nor --status" {
+    run cmd_smartlist --help
+    [[ "$output" != *"-s,"* ]]
+    [[ "$output" != *"--status"* ]]
+}
+
+@test "ls: -s is refused as unknown option, naming -q" {
+    run cmd_smartlist -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt ls: unknown option '-s'"* ]]
+    [[ "$output" == *"-q"* ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls: --status is refused the same way" {
+    run cmd_smartlist --status 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt ls: unknown option '--status'"* ]]
+    [[ "$output" == *"-q"* ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls -q: skips the PR-status lookup and exits 0 with no worktrees" {
+    run cmd_smartlist -q 2>&1
+    [[ "$status" -eq 0 ]]
 }
 
 # ===== ports command =====
@@ -226,12 +291,26 @@ hooks:
     [[ "$output" == *"start"* ]] || [[ "$output" == *"Start"* ]]
 }
 
+@test "start: -s is still --service, not an unknown option" {
+    run cmd_start -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt start: option -s requires an argument"* ]]
+    [[ "$output" != *"unknown option"* ]]
+}
+
 # ===== stop command =====
 
 @test "stop: shows help with --help" {
     run cmd_stop --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"stop"* ]] || [[ "$output" == *"Stop"* ]]
+}
+
+@test "stop: -s is still --service, not an unknown option" {
+    run cmd_stop -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt stop: option -s requires an argument"* ]]
+    [[ "$output" != *"unknown option"* ]]
 }
 
 # ===== run command =====

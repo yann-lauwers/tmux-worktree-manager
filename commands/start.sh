@@ -79,7 +79,7 @@ cmd_start() {
         is_main_root=1
         branch=$(current_branch)
         export WT_MAIN_CONTEXT=1
-        export WT_ROOT_WORKTREE_PATH="$(git_root)"
+        export_or_empty WT_ROOT_WORKTREE_PATH git_root
         export WT_ROOT_SLOT=0
         if [[ -n "$service" ]]; then
             services=("$service")
@@ -126,7 +126,7 @@ cmd_start() {
 
     # Run pre_start hook if defined
     export BRANCH_NAME="$branch"
-    export WORKTREE_PATH="$(get_worktree_path "$project" "$branch")"
+    export_or_empty WORKTREE_PATH get_worktree_path "$project" "$branch"
     run_hook "$PROJECT_CONFIG_FILE" "pre_start"
 
     # Determine which services to start (all by default)
@@ -165,7 +165,7 @@ cmd_start() {
 
         # Run post_start hook
         export BRANCH_NAME="$branch"
-        export WORKTREE_PATH="$(get_worktree_path "$project" "$branch")"
+        export_or_empty WORKTREE_PATH get_worktree_path "$project" "$branch"
         run_hook "$PROJECT_CONFIG_FILE" "post_start"
 
         if [[ "$attach" -eq 1 ]]; then

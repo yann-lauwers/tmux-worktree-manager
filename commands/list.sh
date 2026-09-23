@@ -16,9 +16,12 @@ cmd_list() {
                 project="$2"
                 shift 2
                 ;;
-            -s|--status)
+            --status)
                 show_status=1
                 shift
+                ;;
+            -s)
+                die_unknown_option "list" "$1" "use --status"
                 ;;
             --json)
                 json_output=1
@@ -241,7 +244,7 @@ Usage: wt list [options]
 
 Options:
   -p, --project <name>   Project to list (default: detected from the current directory)
-  -s, --status            Show session and dirty-tree status per worktree (default: off)
+  --status                Show session and dirty-tree status per worktree (default: off)
   --json                  Print as a JSON array (default: off)
   -h, --help              Show this page
 

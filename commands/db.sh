@@ -113,7 +113,9 @@ cmd_db_reset() {
     local backend_port
     backend_port=$(get_service_port "backend" "$branch" "$PROJECT_CONFIG_FILE" "$slot" "$project")
     local pg_port=$((backend_port + 51300))
-    local db_url="postgresql://$(whoami)@localhost:${pg_port}/postgres"
+    local db_url
+    # today's local-assign masked a failing whoami (status 0 from local); keep that behaviour under the split form
+    db_url="postgresql://$(whoami)@localhost:${pg_port}/postgres" || true
 
     echo ""
     log_info "Resetting database for ${CYAN}${branch}${NC}"
@@ -198,10 +200,12 @@ cmd_db_reset() {
                 log_warn "No DIRECT_URL in main repo — cannot dump the seed source"
             else
                 mkdir -p "$(dirname "$seed_dump")"
-                pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
+                if ! { pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
                     && mv "$seed_dump.tmp" "$seed_dump" \
-                    && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
-                    || { log_warn "pg_dump failed — falling back to migrate deploy"; rm -f "$seed_dump.tmp"; }
+                    && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))"; }; then
+                    log_warn "pg_dump failed — falling back to migrate deploy"
+                    rm -f "$seed_dump.tmp"
+                fi
             fi
         fi
 
@@ -378,10 +382,13 @@ cmd_db_dump() {
     print_kv "Target" "$seed_dump"
     echo ""
 
-    pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
+    if ! { pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
         && mv "$seed_dump.tmp" "$seed_dump" \
-        && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
-        || { log_error "pg_dump failed"; rm -f "$seed_dump.tmp"; return 1; }
+        && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))"; }; then
+        log_error "pg_dump failed"
+        rm -f "$seed_dump.tmp"
+        return 1
+    fi
 }
 
 # Print the 'wt db dump' help page to stdout.
