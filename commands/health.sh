@@ -55,8 +55,6 @@ cmd_health() {
     project=$(require_project "$project")
     load_project_config "$project"
 
-    cleanup_stale_worktrees "$project"
-
     # Registration gate — an unmanaged checkout has no slot, no ports, and no
     # services. Fail loudly rather than probing invented ports.
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
@@ -165,6 +163,8 @@ Options:
   -t, --timeout <seconds>   Seconds to wait per service (default: 5)
   -p, --project <name>      Project to act on (default: detected from the current directory)
   -h, --help                 Show this page
+
+Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt health

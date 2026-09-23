@@ -393,6 +393,20 @@ hooks:
     [[ "$new_slot" == "0" ]]
 }
 
+@test "delete: cmd_delete -f removes both the state entry and the slot for an orphaned worktree" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    claim_slot "testproj" "feature/orphan-direct" 3
+    create_worktree_state "testproj" "feature/orphan-direct" "/nonexistent/path/orphan-direct" 0
+
+    run cmd_delete -f -p "testproj" "feature/orphan-direct"
+    [[ "$status" -eq 0 ]]
+
+    [[ "$(get_worktree_state "testproj" "feature/orphan-direct" "path")" == "" ]]
+    [[ "$(get_slot_for_worktree "testproj" "feature/orphan-direct")" == "" ]]
+}
+
 # ===== exec with port env vars =====
 
 @test "exec: exports port variables" {

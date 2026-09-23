@@ -322,6 +322,8 @@ Options:
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help        Show this page
 
+Writes state: removes the worktree's state entry and releases its port slot.
+
 Examples:
   wt ${cmd} feature/auth               # direct delete, prompts first
   wt ${cmd} feature/auth --force       # skip confirmation, force both guards

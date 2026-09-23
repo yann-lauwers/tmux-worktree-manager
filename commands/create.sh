@@ -216,6 +216,11 @@ Options:
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help             Show this page
 
+Writes state and slots: it creates the worktree's state entry and claims a
+port slot. When every slot is taken, it first reclaims the slots of stale
+entries — worktrees whose directory is missing — then retries once before
+failing.
+
 Examples:
   wt create NEX-1500
   wt create fix/my-bug --from staging
@@ -232,6 +237,32 @@ Exit codes:
   1  no project detected, no available slot, or worktree creation failed
   2  usage error: unknown option or missing argument
 EOF
+}
+
+# Claim a slot for a new worktree, reclaiming stale entries only on exhaustion:
+# a free slot short-circuits, so a worktree whose directory is only missing for
+# now keeps its slot until one is actually needed.
+# Args: $1 project, $2 branch, $3 max_slots, $4 port_base, $5 services_per_slot
+# Out: the claimed slot number
+# Side: on exhaustion, releases stale slots and deletes their state entries
+claim_slot_reclaiming() {
+    local project="$1"
+    local branch="$2"
+    local max_slots="$3"
+    local port_base="$4"
+    local services_per_slot="$5"
+
+    local slot
+    if slot=$(claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot"); then
+        echo "$slot"
+        return 0
+    fi
+
+    local reclaimed
+    reclaimed=$(reclaim_stale_worktrees "$project")
+    [[ "$reclaimed" -gt 0 ]] || return 1
+
+    claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot"
 }
 
 # Internal worker — runs `git worktree add`, slot allocation, setup, tmux session.
@@ -301,9 +332,10 @@ _cmd_create_core() {
     services_per_slot=$(yq -r '.ports.reserved.services // {} | length' "$PROJECT_CONFIG_FILE" 2>/dev/null)
     [[ -z "$services_per_slot" || "$services_per_slot" == "0" ]] && services_per_slot=2
 
-    # Claim a slot for reserved ports (checks system port availability)
+    # Claim a slot for reserved ports (checks system port availability); on
+    # exhaustion, reclaims stale entries of this project and retries once.
     local slot
-    if ! slot=$(claim_slot "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot"); then
+    if ! slot=$(claim_slot_reclaiming "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot"); then
         die "No available slots. Maximum $PROJECT_RESERVED_SLOTS concurrent worktrees with reserved ports, or all slots have ports in use. Stop or delete an existing worktree, or free the conflicting ports."
     fi
     _create_cleanup_project="$project"

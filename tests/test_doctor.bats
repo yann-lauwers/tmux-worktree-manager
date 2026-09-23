@@ -212,6 +212,40 @@ services: []"
     [[ "$output" == *"passed"* ]]
 }
 
+# --- Exit codes (documented on --help: 0 = no check failed, warnings allowed;
+# 1 = at least one check failed) ---
+
+@test "doctor exits 0 when only a warning is present" {
+    local project="warnonly"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: warnonly
+repo_path: $TEST_TMPDIR
+services: []"
+
+    create_worktree_state "$project" "feature/gone" "/tmp/nonexistent-path-xyz" 0
+
+    run cmd_doctor -p "$project" 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Orphaned worktree state"* ]]
+}
+
+@test "doctor exits 1 when a check fails" {
+    local project="failing"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: failing
+repo_path: /this/path/does/not/exist
+services: []"
+
+    run cmd_doctor -p "$project" 2>&1
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"FAIL"* ]]
+}
+
+@test "doctor --help lists its exit codes" {
+    run cmd_doctor --help
+    [[ "$output" == *"Exit codes:"* ]]
+    [[ "$output" == *"0"* ]]
+    [[ "$output" == *"1"* ]]
+}
+
 # --- Regression: survives set -e through every section ---
 #
 # wt.sh runs under `set -euo pipefail`. Post-increment `((counter++))` returns

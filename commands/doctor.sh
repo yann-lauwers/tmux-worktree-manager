@@ -169,7 +169,7 @@ cmd_doctor() {
                 entry_branch=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
                 entry_ctx=$(_doctor_port_context "$state_f" "$sanitized_branch" "$entry_branch" "$config_file")
                 if [[ -n "$wt_path" ]] && [[ ! -d "$wt_path" ]]; then
-                    _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing)"
+                    _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing) — reclaimed by \`wt delete $entry_branch\` or by the next \`wt create\` that finds every slot taken"
                     orphaned=$((orphaned + 1))
                 elif [[ "$entry_ctx" == "none" ]]; then
                     _doctor_warn "Orphaned worktree state: $sanitized_branch (no slot or path recorded)"
@@ -470,6 +470,14 @@ Checks performed:
 Options:
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help              Show this page
+
+Exit codes:
+  0                 No check failed (a warning — e.g. an orphaned worktree
+                    entry, a stale service PID — does not fail the run)
+  1                 At least one check failed (bad config, missing repo_path,
+                    overlapping port ranges, a broken worktree link, ...)
+
+Reads state only: the state and slots files are left unchanged.
 
 Examples:
   wt doctor
