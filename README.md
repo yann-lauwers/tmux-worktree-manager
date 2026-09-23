@@ -114,7 +114,7 @@ wt delete feature/auth
 | `wt init` | Initialize project configuration |
 | `wt config [--edit]` | View/edit configuration |
 
-Run `wt <command> --help` for detailed usage of any command.
+Run `wt <command> --help`, or `wt help <command>`, for detailed usage of any command.
 
 ## Configuration
 

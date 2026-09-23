@@ -71,7 +71,8 @@ Usage: wt <command> [arguments] [options]
 
 Common commands: create, open, ls, rm, start, stop, status, attach, db
 
-Run 'wt --help' for the full command list, or 'wt <command> --help' for one command.
+Run 'wt --help' for the full command list, or 'wt help <command>' (same as
+'wt <command> --help') for one command's own page.
 EOF
 }
 
@@ -88,6 +89,7 @@ pickers, which force-remove a matching worktree by default.
 Usage: wt <command> [arguments] [options]
 
 Commands:
+  help <command>   Show one command's page (same as wt <command> --help)
   create, c        Create a worktree (Linear-aware, scratch, or a plain branch)
   open, o          Open a worktree in cmux/tmux (fzf picker)
   ls               List worktrees across all projects, with PR status
@@ -248,6 +250,18 @@ main() {
 
     local command="$1"
     shift
+
+    # 'wt help <command>' becomes '<command> --help', so it takes the exact path
+    # a direct --help does: no dependency check, alias dispatch, the handler's
+    # own page, and the unknown-command arm for a word that is no command.
+    if [[ "$command" == "help" ]]; then
+        if [[ $# -eq 1 ]]; then
+            command="$1"
+            set -- --help
+        elif [[ $# -gt 1 ]]; then
+            die_usage "help" "takes one command name — for a subcommand's page run 'wt <command> <subcommand> --help'" "wt help <command>"
+        fi
+    fi
 
     # Handle global flags
     case "$command" in

@@ -46,3 +46,13 @@ create_yaml_fixture() {
     mkdir -p "$(dirname "$path")"
     printf '%s\n' "$content" > "$path"
 }
+
+# Put a stub gh first on PATH, so a command under test never reaches the network.
+# Args: $1 the stub's body — the shell run in place of gh (e.g. "exit 1", or an echo of its JSON)
+# Side: writes $TEST_TMPDIR/bin/gh, prepends $TEST_TMPDIR/bin to PATH
+stub_gh() {
+    mkdir -p "$TEST_TMPDIR/bin"
+    printf '#!/bin/bash\n%s\n' "$1" > "$TEST_TMPDIR/bin/gh"
+    chmod +x "$TEST_TMPDIR/bin/gh"
+    PATH="$TEST_TMPDIR/bin:$PATH"
+}
