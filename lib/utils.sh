@@ -6,6 +6,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
+# shellcheck disable=SC2034 # read by lib/smart.sh, part of this file's exported color palette
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
@@ -236,6 +237,19 @@ with_file_lock() {
     "$@" || rc=$?
     rm -rf "$lock_dir"
     return $rc
+}
+
+# Export VARNAME to a command's stdout, or to whatever a failed substitution captured with
+# its exit status forced to 0 — matching `export VAR="$(cmd)"`, whose own status is the
+# assignment's, so a failing cmd was already masked before this helper existed.
+# Args: $1 VARNAME, $2.. cmd and its args
+# Side: exports $1 in the caller's shell
+export_or_empty() {
+    local __eoe_varname="$1"
+    shift
+    local __eoe_value
+    __eoe_value="$("$@")" || true
+    export "${__eoe_varname}=${__eoe_value}"
 }
 
 # Check if port is in use

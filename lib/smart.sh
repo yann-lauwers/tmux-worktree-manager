@@ -236,7 +236,9 @@ smart_pr_badge() {
 
     local url="https://github.com/${repo_nwo}/pull/${number}"
     local link_start link_end
+    # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
     link_start=$(printf '\e]8;;%s\e\\' "$url")
+    # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
     link_end=$(printf '\e]8;;\e\\')
 
     if [[ "$state" == "MERGED" ]]; then

@@ -38,9 +38,9 @@ _ports_table_row() {
 
     if [[ "$check_availability" -eq 1 ]]; then
         if port_in_use "$effective_port"; then
-            printf " ${RED}in use${NC}"
+            printf '%b' " ${RED}in use${NC}"
         else
-            printf " ${GREEN}available${NC}"
+            printf '%b' " ${GREEN}available${NC}"
         fi
     fi
     echo ""
@@ -143,10 +143,6 @@ cmd_ports() {
     print_kv "Project" "$project"
     print_kv "Slot" "$slot"
     echo ""
-
-    # Check for any port overrides
-    local overrides
-    overrides=$(list_port_overrides "$project" "$branch" 2>/dev/null)
 
     # Reserved ports section
     local reserved_min

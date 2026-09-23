@@ -344,8 +344,8 @@ cmd_pr_conflicts() {
 
         local sel_idx="${selected##*§}"
         local sel_entry="${conflicting[$sel_idx]}"
-        local sel_project sel_branch sel_pr sel_title sel_wt_path sel_draft sel_nwo sel_author sel_owner
-        IFS='|' read -r sel_project sel_branch sel_pr sel_title sel_wt_path sel_draft sel_nwo sel_author sel_owner <<< "$sel_entry"
+        local sel_project sel_branch sel_pr sel_wt_path _
+        IFS='|' read -r sel_project sel_branch sel_pr _ sel_wt_path _ _ _ _ <<< "$sel_entry"
 
         # Block selection of PRs without local worktree
         if [[ -z "$sel_wt_path" ]]; then

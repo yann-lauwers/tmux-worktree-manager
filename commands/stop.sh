@@ -8,7 +8,6 @@
 cmd_stop() {
     local branch=""
     local service=""
-    local all=0
     local project=""
     local -a positionals=()
 
@@ -21,7 +20,7 @@ cmd_stop() {
                 shift 2
                 ;;
             -a|--all)
-                all=1
+                # accepted for backwards compatibility — stopping all services is already the default
                 shift
                 ;;
             -p|--project)
@@ -64,7 +63,7 @@ cmd_stop() {
         # the port-based kills and post_stop hook target the root's services.
         branch=$(current_branch)
         export WT_MAIN_CONTEXT=1
-        export WT_ROOT_WORKTREE_PATH="$(git_root)"
+        export_or_empty WT_ROOT_WORKTREE_PATH git_root
         export WT_ROOT_SLOT=0
         if [[ -n "$service" ]]; then
             services=("$service")

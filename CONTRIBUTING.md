@@ -21,6 +21,7 @@ Thank you for your interest in contributing to **wt** — the Git Worktree Manag
 - **yq** — the suite is tested against **mikefarah/yq v4.53.6**, the exact release pinned by `YQ_VERSION` in `.github/workflows/ci.yml`. `brew install yq` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/mikefarah/yq/releases/tag/v4.53.6
 - **tmux** — `brew install tmux`
 - **bats-core** (for running tests) — `brew install bats-core`
+- **shellcheck** — the suite is linted against **koalaman/shellcheck v0.11.0**, the exact release pinned by `SHELLCHECK_VERSION` in `.github/workflows/ci.yml` and read by `scripts/shellcheck.sh`, at severity **info** and above (the floor `scripts/shellcheck.sh` sets on the invocation — `.shellcheckrc` carries no severity key). `brew install shellcheck` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/koalaman/shellcheck/releases/tag/v0.11.0
 
 ### Development Installation
 
@@ -112,7 +113,17 @@ Open an issue with the `enhancement` label and describe:
    bats tests/
    ```
 
-5. **Open a pull request** against `main` with:
+5. **Enable the pre-push hook once**, so a shellcheck finding or a red suite refuses the push locally instead of on CI:
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+   It runs `scripts/shellcheck.sh` — the pinned shellcheck over the whole command/library
+   surface, at severity info and above — then `bats tests/`, stopping at the first failure
+   and naming which one refused.
+   Run the lint alone with `scripts/shellcheck.sh`. The only suppression the review accepts
+   is an inline `# shellcheck disable=SCxxxx` carrying a reason.
+
+6. **Open a pull request** against `main` with:
    - A clear title summarising the change
    - A description explaining *why* the change is needed
    - Reference to any related issue (e.g. `Closes #42`)
