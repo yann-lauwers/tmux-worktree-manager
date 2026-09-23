@@ -246,6 +246,13 @@ remote_branch_exists() {
     git -C "$repo_root" ls-remote --exit-code --heads "$remote" "$branch" &>/dev/null
 }
 
+# Report whether stdin is a terminal — the seam a test overrides to drive a
+# command's interactive path without a real tty attached.
+# Out: exit 0 (stdin is a terminal) or 1 (it is not — piped, redirected, /dev/null)
+stdin_is_tty() {
+    [[ -t 0 ]]
+}
+
 # Confirm action with user
 confirm() {
     local message="${1:-Are you sure?}"

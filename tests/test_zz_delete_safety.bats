@@ -217,3 +217,98 @@ _commit_in() {
     # ...but the pre_delete teardown ALREADY ran — the irreversible partial-teardown window.
     [[ -f "$marker" ]]
 }
+
+# ── wt db reset: confirms before it stops or deletes anything ─────────────────
+
+# Stubs pg_ctl/initdb/pg_isready/pnpm on PATH ahead of any real Postgres, and
+# points HOME inside $TEST_TMPDIR so cmd_db_reset's pg_dir
+# ($HOME/.local/share/nexus-pg/<slug>) never leaves the temp tree. Each stub
+# appends its own argv to $TEST_TMPDIR/stub.log; initdb additionally mkdirs
+# its -D target so pg_dir "exists" the way a real reset would leave it.
+#
+# Each db reset test opens with `set -e`: setup() runs `set +e`, and under it
+# bats 1.13 reports a failing assertion as ok. Negative assertions count
+# matches rather than using `! grep`, which errexit ignores.
+_db_reset_setup() {
+    source "$WT_SCRIPT_DIR/commands/db.sh"
+    export HOME="$TEST_TMPDIR/home"
+    mkdir -p "$HOME" "$TEST_TMPDIR/bin"
+    STUB_LOG="$TEST_TMPDIR/stub.log"
+    : > "$STUB_LOG"
+
+    printf '#!/bin/bash\necho "pg_ctl $*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$TEST_TMPDIR/bin/pg_ctl"
+    printf '#!/bin/bash\necho "initdb $*" >> "%s"\nwhile [[ $# -gt 0 ]]; do [[ "$1" == "-D" ]] && mkdir -p "$2"; shift; done\nexit 0\n' "$STUB_LOG" > "$TEST_TMPDIR/bin/initdb"
+    printf '#!/bin/bash\necho "pg_isready $*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$TEST_TMPDIR/bin/pg_isready"
+    printf '#!/bin/bash\necho "pnpm $*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$TEST_TMPDIR/bin/pnpm"
+    chmod +x "$TEST_TMPDIR/bin/pg_ctl" "$TEST_TMPDIR/bin/initdb" "$TEST_TMPDIR/bin/pg_isready" "$TEST_TMPDIR/bin/pnpm"
+    PATH="$TEST_TMPDIR/bin:$PATH"
+
+    require_project() { echo "testproj"; }
+    load_project_config() { :; }
+    get_slot_for_worktree() { echo "0"; }
+    get_service_port() { echo "3000"; }
+    get_worktree_path() { echo ""; }
+
+    DB_RESET_MARKER="$HOME/.local/share/nexus-pg/dbreset-branch/marker"
+    mkdir -p "$(dirname "$DB_RESET_MARKER")"
+    touch "$DB_RESET_MARKER"
+}
+
+@test "T1: cmd_db_reset on a terminal declining the prompt refuses without wiping" {
+    set -e
+    _db_reset_setup
+    stdin_is_tty() { return 0; }
+
+    run cmd_db_reset dbreset-branch <<< "n"
+    [[ "$status" -eq 2 ]]
+    [[ -f "$DB_RESET_MARKER" ]]
+    [[ "$(grep -c "pg_ctl.*stop" "$STUB_LOG")" -eq 0 ]]
+    [[ "$(grep -c "^initdb" "$STUB_LOG")" -eq 0 ]]
+}
+
+@test "T1: cmd_db_reset on a terminal accepting the prompt resets" {
+    set -e
+    _db_reset_setup
+    stdin_is_tty() { return 0; }
+
+    run cmd_db_reset dbreset-branch <<< "y"
+    [[ "$status" -eq 0 ]]
+    [[ ! -f "$DB_RESET_MARKER" ]]
+    grep -q "pg_ctl.*stop" "$STUB_LOG"
+}
+
+@test "T3: cmd_db_reset -y and --yes each reset without reading stdin or prompting" {
+    set -e
+    local flag
+    for flag in -y --yes; do
+        _db_reset_setup
+        stdin_is_tty() { return 1; }
+
+        run cmd_db_reset dbreset-branch "$flag" < /dev/null
+        [[ "$status" -eq 0 ]]
+        [[ ! -f "$DB_RESET_MARKER" ]]
+        grep -q "pg_ctl.*stop" "$STUB_LOG"
+        [[ "$output" != *"[y/N]"* ]]
+    done
+}
+
+@test "T4: cmd_db_reset with a real non-terminal stdin and no --yes refuses, naming --yes" {
+    set -e
+    _db_reset_setup
+
+    run cmd_db_reset dbreset-branch < /dev/null
+    [[ "$status" -ne 0 ]]
+    [[ -f "$DB_RESET_MARKER" ]]
+    [[ "$(grep -c "pg_ctl.*stop" "$STUB_LOG")" -eq 0 ]]
+    [[ "$output" == *"wt db reset: stdin is not a terminal and --yes was not given, so nothing was wiped"* ]]
+    [[ "$output" == *"usage: wt db reset [branch] --yes"* ]]
+}
+
+@test "wt db reset --help mentions --yes and the declined exit code 2" {
+    set -e
+    run "$WT_SCRIPT_DIR/wt.sh" db reset --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"--yes"* ]]
+    [[ "$output" == *"declining exits 2, the same as \`wt delete\`"* ]]
+    [[ "$output" == *"the confirmation"*"was declined"* ]]
+}
