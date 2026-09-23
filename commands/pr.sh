@@ -432,7 +432,7 @@ cmd_pr_conflicts() {
     done < <(_pr_conflicting_records "$filter")
 
     local print_hint=0
-    if ! $quick && [[ -t 0 ]]; then
+    if ! $quick && stdin_is_tty; then
         print_hint=1
     fi
     _pr_print_conflicts "$print_hint" ${conflicting[@]+"${conflicting[@]}"}
@@ -509,7 +509,7 @@ cmd_pr_resolve() {
         esac
     done
 
-    if [[ ! -t 0 ]]; then
+    if ! stdin_is_tty; then
         log_warn "No terminal attached. Use 'wt pr conflicts' to list conflicting PRs."
         return 1
     fi

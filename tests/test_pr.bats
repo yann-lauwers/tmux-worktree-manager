@@ -9,6 +9,19 @@ bats_require_minimum_version 1.5.0
 
 setup() {
     setup_test_dirs
+    load_lib "utils"
+    load_lib "json"
+    load_lib "version"
+    load_lib "config"
+    load_lib "port"
+    load_lib "state"
+    load_lib "worktree"
+    load_lib "setup"
+    load_lib "tmux"
+    load_lib "service"
+    load_lib "smart"
+    load_lib "worktree-list"
+    source "$WT_SCRIPT_DIR/commands/pr.sh"
 
     TEST_REPO="$TEST_TMPDIR/test-repo"
     mkdir -p "$TEST_REPO"
@@ -24,6 +37,7 @@ setup() {
     # WT_PROJECTS_DIR, which lib/smart.sh reads.
     HOME_DIR="$TEST_TMPDIR/home"
     mkdir -p "$HOME_DIR"
+    export HOME="$HOME_DIR"
     create_yaml_fixture "$WT_PROJECTS_DIR/testproj.yaml" "name: testproj
 repo_path: $TEST_REPO
 base_branch: main"
@@ -37,6 +51,7 @@ base_branch: main"
 
     STUB_BIN="$TEST_TMPDIR/stub-bin"
     mkdir -p "$STUB_BIN"
+    export PATH="$STUB_BIN:$PATH"
     FZF_CALL_LOG="$TEST_TMPDIR/fzf-calls.log"
     : > "$FZF_CALL_LOG"
 }
@@ -95,31 +110,6 @@ _empty_pr_fixture() {
     echo "[]" > "$file"
 }
 
-# Run a command under a pty, in whichever script(1) syntax the platform on
-# hand accepts — BSD script takes the command and its arguments directly
-# after the output file, util-linux script takes the whole command as one
-# string to -c and the output file last. Detected off script's own --version
-# banner rather than uname, so a Linux box carrying BSD script (or the
-# reverse) still gets the syntax it actually has. Each argument is shell-quoted
-# with printf %q before being joined for -c, since that form runs the string
-# through a shell rather than exec'ing argv directly — and printf %q emits
-# $'...' quoting, which dash (util-linux script's fallback shell when SHELL
-# is unset) does not read, so the -c string is forced through bash explicitly.
-# Args: $@ the command and its arguments
-# Out: the command's combined stdout+stderr, as captured through the pty
-_run_under_pty() {
-    if script --version 2>/dev/null | grep -q util-linux; then
-        local quoted="" arg
-        for arg in "$@"; do
-            printf -v arg '%q' "$arg"
-            quoted+="$arg "
-        done
-        SHELL=/bin/bash script -qec "$quoted" /dev/null
-    else
-        script -q /dev/null "$@"
-    fi
-}
-
 # ─── pr conflicts: -r/--resolve is rejected, never rebases or merges ───────
 
 @test "pr conflicts -r is rejected: exit 2, stderr names wt pr resolve" {
@@ -139,8 +129,7 @@ _run_under_pty() {
     _mergeable_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
 
-    run env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
+    run "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"All clear"* ]]
 }
@@ -150,8 +139,7 @@ _run_under_pty() {
     _empty_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
 
-    run env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
+    run "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"All clear"* ]]
 }
@@ -172,8 +160,7 @@ _run_under_pty() {
 repo_path: $real_repo
 base_branch: main"
 
-    run env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
+    run "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"All clear"* ]]
 }
@@ -183,8 +170,7 @@ base_branch: main"
     _conflicting_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
 
-    run env HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
+    run "$WT_SCRIPT_DIR/wt.sh" pr conflicts -p testproj
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"#42"* ]]
     [[ "$output" == *"feature/auth"* ]]
@@ -211,59 +197,57 @@ base_branch: main"
     [[ "$output" == *"wt pr conflicts"* ]]
 }
 
+@test "pr resolve refuses through its own seam, naming wt pr conflicts, with no real tty involved" {
+    stdin_is_tty() { return 1; }
+
+    run cmd_pr_resolve
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"wt pr conflicts"* ]]
+}
+
 # ─── pr resolve <branch>: skips the PR list, only the strategy picker runs ─
 
 @test "pr resolve <branch> not conflicting reports nothing to resolve, exit 0" {
-    if ! command -v script &>/dev/null; then
-        skip "script(1) not available"
-    fi
     local fixture="$TEST_TMPDIR/prs.json"
     _mergeable_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
     _stub_fzf "$STUB_BIN" "$FZF_CALL_LOG"
+    stdin_is_tty() { return 0; }
 
-    local raw
-    raw=$(HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/clean -p testproj 2>/dev/null)
+    run cmd_pr_resolve feature/clean -p testproj
 
-    [[ "$raw" == *"Nothing to resolve"* ]]
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Nothing to resolve"* ]]
     local calls
     calls=$(wc -l < "$FZF_CALL_LOG" | tr -d ' ')
     [[ "$calls" -eq 0 ]]
 }
 
 @test "pr resolve <branch> absent from scope exits 1" {
-    if ! command -v script &>/dev/null; then
-        skip "script(1) not available"
-    fi
     local fixture="$TEST_TMPDIR/prs.json"
     _conflicting_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
     _stub_fzf "$STUB_BIN" "$FZF_CALL_LOG"
+    stdin_is_tty() { return 0; }
 
-    HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        run _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve no-such-branch -p testproj
+    run cmd_pr_resolve no-such-branch -p testproj
 
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"No open PR found for branch: no-such-branch"* ]]
 }
 
 @test "pr resolve <branch> skips the PR list and invokes fzf once, for the strategy only" {
-    if ! command -v script &>/dev/null; then
-        skip "script(1) not available"
-    fi
     local fixture="$TEST_TMPDIR/prs.json"
     _conflicting_pr_fixture "$fixture"
     _stub_gh "$STUB_BIN" "$fixture"
     _stub_fzf "$STUB_BIN" "$FZF_CALL_LOG"
+    stdin_is_tty() { return 0; }
 
     git -C "$TEST_REPO" worktree add "$TEST_TMPDIR/wt-auth" -b feature/auth >/dev/null 2>&1
 
-    local raw
-    raw=$(HOME="$HOME_DIR" PATH="$STUB_BIN:$PATH" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
-        _run_under_pty "$WT_SCRIPT_DIR/wt.sh" pr resolve feature/auth -p testproj 2>/dev/null)
+    run cmd_pr_resolve feature/auth -p testproj
 
-    [[ "$raw" != *"Pick a PR to resolve"* ]]
+    [[ "$output" != *"Pick a PR to resolve"* ]]
     local calls
     calls=$(wc -l < "$FZF_CALL_LOG" | tr -d ' ')
     [[ "$calls" -eq 1 ]]
