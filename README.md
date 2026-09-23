@@ -97,6 +97,8 @@ wt delete feature/auth
 | `wt prune [-y]` | Merged/closed-PR worktrees only (alias for `wt rm --merged`); `-y` deletes them all |
 | `wt code [branch]` | Open worktree in editor (fzf picker) |
 | `wt pr [branch]` | Open PR in browser for a branch |
+| `wt pr conflicts [-a]` | List open PRs with merge conflicts |
+| `wt pr resolve [branch]` | Rebase or merge a conflicting PR onto its base branch |
 
 ### Core Commands
 

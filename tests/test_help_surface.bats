@@ -190,6 +190,7 @@ _wrap_attach_page() {
     [[ "$output" == *"db dump"* ]]
     [[ "$output" == *"db url"* ]]
     [[ "$output" == *"pr conflicts,c"* ]]
+    [[ "$output" == *"pr resolve"* ]]
     [[ "$output" == *"ports set"* ]]
     [[ "$output" == *"ports clear"* ]]
 }
