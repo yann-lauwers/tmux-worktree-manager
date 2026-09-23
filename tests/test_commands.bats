@@ -23,9 +23,11 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/run.sh"
     source "$WT_SCRIPT_DIR/commands/exec.sh"
     source "$WT_SCRIPT_DIR/commands/create.sh"
+    source "$WT_SCRIPT_DIR/commands/open.sh"
     source "$WT_SCRIPT_DIR/commands/delete.sh"
     source "$WT_SCRIPT_DIR/commands/start.sh"
     source "$WT_SCRIPT_DIR/commands/stop.sh"
+    source "$WT_SCRIPT_DIR/commands/db.sh"
 
     # Create a test git repo
     TEST_REPO="$TEST_TMPDIR/test-repo"
@@ -261,6 +263,20 @@ hooks:
     run cmd_exec -p "testproj" "feature/exec-cmd" pwd 2>&1
     [[ "$status" -eq 0 ]]
     [[ "$output" == *".worktrees/feature-exec-cmd"* ]]
+}
+
+@test "exec: --help after the branch reaches the wrapped command, not wt's own help" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    local wt_path
+    wt_path=$(create_worktree "feature/exec-help" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "testproj" "feature/exec-help" "$wt_path" 0
+    claim_slot "testproj" "feature/exec-help" 3
+
+    run cmd_exec -p "testproj" "feature/exec-help" echo --help 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--help" ]]
 }
 
 # ===== create + delete lifecycle =====
@@ -624,7 +640,7 @@ hooks:
 
 @test "health: rejects an unknown option" {
     run cmd_health --nope
-    [[ "$status" -eq 1 ]]
+    [[ "$status" -eq 2 ]]
 }
 
 # Regression: a checkout wt does not manage has no slot and no services, so
@@ -647,4 +663,54 @@ hooks:
     run cmd_ports -p "testproj" "feature/never-created"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"Worktree not found"* ]]
+}
+
+# ===== create/open/db: canonical naming and usage-error contract =====
+
+@test "create: unknown option stderr names 'wt create:', not 'wt c:'" {
+    run cmd_create --bogus 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt create: unknown option"* ]]
+    [[ "$output" != *"wt c:"* ]]
+}
+
+@test "open: unknown option stderr names 'wt open:', not 'wt o:'" {
+    run cmd_open --bogus 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option"* ]]
+    [[ "$output" != *"wt o:"* ]]
+}
+
+@test "delete -p with no value: standard usage line, exit 2, names 'wt delete:'" {
+    run cmd_delete -p 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt delete: option -p requires an argument"* ]]
+    [[ "$output" == *"see 'wt delete --help'"* ]]
+}
+
+@test "rm --project with no value: standard usage line, exit 2, names 'wt rm:'" {
+    WT_CMD_NAME="rm" run cmd_delete --project 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt rm: option --project requires an argument"* ]]
+    [[ "$output" == *"see 'wt rm --help'"* ]]
+}
+
+@test "prune -p with no value: standard usage line, exit 2, names 'wt prune:'" {
+    WT_CMD_NAME="prune" run cmd_delete -p 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt prune: option -p requires an argument"* ]]
+    [[ "$output" == *"see 'wt prune --help'"* ]]
+}
+
+@test "db url: --help prints no URL and exits 0" {
+    run cmd_db_url --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Prints the database connection URL"* ]]
+    [[ "$output" != *"postgres://"* ]]
+}
+
+@test "db: no subcommand exits 2" {
+    run cmd_db
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt db: missing subcommand"* ]]
 }

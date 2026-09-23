@@ -1,6 +1,10 @@
 #!/bin/bash
 # commands/doctor.sh - Diagnose project health
 
+# Run wt's six diagnostic checks and print a PASS/FAIL/WARN line per check.
+# Args: none (reads -p/--project from argv)
+# Out: the diagnostic report
+# Side: returns 1 when any check failed
 cmd_doctor() {
     local project=""
     local passed=0
@@ -11,10 +15,7 @@ cmd_doctor() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "doctor" "$1" "${2:-}" "wt doctor [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -23,9 +24,7 @@ cmd_doctor() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_doctor_help
-                return 1
+                die_unknown_option "doctor" "$1"
                 ;;
             *)
                 shift
@@ -452,33 +451,38 @@ _doctor_check_cmd() {
     fi
 }
 
+# Print the 'wt doctor' help page to stdout.
 show_doctor_help() {
     cat << 'EOF'
+Runs six diagnostic checks against your wt setup and project configuration and prints a
+PASS/FAIL/WARN line per check plus a summary count. Reads state only: the state and slots
+files are left unchanged.
+
 Usage: wt doctor [options]
 
-Run diagnostic checks on your wt setup and project configuration.
-
 Checks performed:
-  1. Dependencies  - git, yq, tmux, envsubst (with versions)
-  2. Project config - YAML syntax, required fields, port ranges
-  3. State          - orphaned entries, stale PIDs
-  4. Tmux health    - session exists, windows match state
-  5. Port conflicts - duplicate assignments, range overlaps
+  1. Dependencies       - git, yq, tmux, envsubst (with versions)
+  2. Project Configuration - YAML syntax, required fields, port ranges
+  3. State Consistency  - orphaned worktree entries, stale service PIDs
+  4. Worktree Links     - each linked worktree's .git link is relative and resolves
+  5. Tmux Health        - session exists, windows match recorded state
+  6. Port Conflicts     - duplicate port assignments, range overlaps
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
-
-Exit codes:
-  0                 No check failed (a warning — e.g. an orphaned worktree
-                    entry, a stale service PID — does not fail the run)
-  1                 At least one check failed (bad config, missing repo_path,
-                    overlapping port ranges, a broken worktree link, ...)
-
-Reads state only: the state and slots files are left unchanged.
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt doctor
   wt doctor -p myproject
+
+Aliases: wt doc
+
+Exit codes:
+  0  no check failed; a warning (an orphaned worktree entry, a stale service PID)
+     does not fail the run
+  1  at least one check failed (bad config, missing repo_path, overlapping port
+     ranges, a broken worktree link, ...)
+  2  usage error: unknown option or missing option argument
 EOF
 }

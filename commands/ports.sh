@@ -46,6 +46,9 @@ _ports_table_row() {
     echo ""
 }
 
+# Show port assignments for a worktree's slot, or dispatch to the set/clear subcommands.
+# Args: none (reads 'set'/'clear' as $1, else -c/--check, -p/--project, [branch] from argv)
+# Side: dies (exit 1) when the branch has no slot and no worktree exists
 cmd_ports() {
     local subcommand=""
     local branch=""
@@ -82,7 +85,7 @@ cmd_ports() {
                 shift
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "ports" "$1" "${2:-}" "wt ports [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -91,9 +94,7 @@ cmd_ports() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_ports_help
-                return 1
+                die_unknown_option "ports" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -109,9 +110,7 @@ cmd_ports() {
         branch=$(detect_worktree_branch)
         [[ -z "$branch" ]] && branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (could not auto-detect)"
-            show_ports_help
-            return 1
+            die_usage "ports" "branch name is required and could not be detected" "wt ports [branch] [options]"
         fi
         log_info "Using current branch: $branch"
     fi
@@ -232,31 +231,40 @@ cmd_ports() {
     fi
 }
 
+# Print the 'wt ports' help page to stdout.
 show_ports_help() {
     cat << 'EOF'
+Prints the reserved and dynamic port assignments, effective environment variables, and database
+connection string for a worktree's slot.
+`set` and `clear` manage a per-service port override instead of printing.
+
 Usage: wt ports [branch] [options]
        wt ports set <service> <port> [branch] [options]
        wt ports clear <service> [branch] [options]
 
-Show and manage port assignments for worktrees.
-
 Subcommands:
-  set <service> <port>   Override port for a service in a worktree
-  clear <service>        Remove port override for a service
+  set <service> <port>   Override the port for a service in a worktree (see 'wt ports set --help')
+  clear <service>        Remove a port override for a service (see 'wt ports clear --help')
 
 Arguments:
-  [branch]          Branch name of the worktree (defaults to current branch)
+  [branch]          Full branch name of the worktree (default: detected from the current directory,
+                    else the current git branch)
 
 Options:
-  -c, --check       Check if ports are currently in use
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -c, --check          Check whether each effective port is currently in use (default: off)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt ports feature/auth
   wt ports feature/auth --check
   wt ports set api-server 4500 feature/auth
   wt ports clear api-server feature/auth
+
+Exit codes:
+  0  printed
+  1  no slot found for a branch wt does not manage and the worktree does not exist
+  2  usage error: unknown option, missing option argument, or missing branch
 EOF
 }
 
@@ -271,7 +279,7 @@ cmd_ports_set() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "ports set" "$1" "${2:-}" "wt ports set <service> <port> [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -280,9 +288,7 @@ cmd_ports_set() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_ports_set_help
-                return 1
+                die_unknown_option "ports set" "$1"
                 ;;
             *)
                 if [[ -z "$service" ]]; then
@@ -298,9 +304,7 @@ cmd_ports_set() {
     done
 
     if [[ -z "$service" ]] || [[ -z "$port" ]]; then
-        log_error "Service name and port are required"
-        show_ports_set_help
-        return 1
+        die_usage "ports set" "service name and port are required" "wt ports set <service> <port> [branch] [options]"
     fi
 
     # Validate port is a number
@@ -315,9 +319,7 @@ cmd_ports_set() {
     if [[ -z "$branch" ]]; then
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (could not auto-detect)"
-            show_ports_set_help
-            return 1
+            die_usage "ports set" "branch name is required and could not be detected" "wt ports set <service> <port> [branch] [options]"
         fi
         log_info "Using current branch: $branch"
     fi
@@ -344,25 +346,33 @@ cmd_ports_set() {
     log_info "Restart the service to apply: wt stop $service && wt start $service"
 }
 
+# Print the 'wt ports set' help page to stdout.
 show_ports_set_help() {
     cat << 'EOF'
-Usage: wt ports set <service> <port> [branch] [options]
+Writes a per-branch port override for one service and prints a confirmation naming the branch and
+the new port.
 
-Set a port override for a service in a worktree.
+Usage: wt ports set <service> <port> [branch] [options]
 
 Arguments:
   <service>         Service name (e.g., api-server, frontend)
   <port>            Port number to use
-  <branch>          Branch name (defaults to current branch)
+  <branch>          Full branch name (default: the current git branch)
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt ports set api-server 4500
   wt ports set api-server 4500 feature/auth
   wt ports set frontend 3100 --project myproject
+
+Exit codes:
+  0  override set
+  1  worktree not found for the branch, or the port is not a number
+  2  usage error: unknown option, missing option argument, missing service or port, or missing
+     branch
 EOF
 }
 
@@ -376,7 +386,7 @@ cmd_ports_clear() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "ports clear" "$1" "${2:-}" "wt ports clear <service> [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -385,9 +395,7 @@ cmd_ports_clear() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_ports_clear_help
-                return 1
+                die_unknown_option "ports clear" "$1"
                 ;;
             *)
                 if [[ -z "$service" ]]; then
@@ -401,9 +409,7 @@ cmd_ports_clear() {
     done
 
     if [[ -z "$service" ]]; then
-        log_error "Service name is required"
-        show_ports_clear_help
-        return 1
+        die_usage "ports clear" "service name is required" "wt ports clear <service> [branch] [options]"
     fi
 
     project=$(require_project "$project")
@@ -412,9 +418,7 @@ cmd_ports_clear() {
     if [[ -z "$branch" ]]; then
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (could not auto-detect)"
-            show_ports_clear_help
-            return 1
+            die_usage "ports clear" "branch name is required and could not be detected" "wt ports clear <service> [branch] [options]"
         fi
         log_info "Using current branch: $branch"
     fi
@@ -428,22 +432,28 @@ cmd_ports_clear() {
     log_info "Restart the service to use default port: wt stop $service && wt start $service"
 }
 
+# Print the 'wt ports clear' help page to stdout.
 show_ports_clear_help() {
     cat << 'EOF'
-Usage: wt ports clear <service> [branch] [options]
+Removes a per-branch port override for one service and prints a confirmation naming the branch.
 
-Remove a port override for a service in a worktree.
+Usage: wt ports clear <service> [branch] [options]
 
 Arguments:
   <service>         Service name (e.g., api-server, frontend)
-  <branch>          Branch name (defaults to current branch)
+  <branch>          Full branch name (default: the current git branch)
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt ports clear api-server
   wt ports clear api-server feature/auth
+
+Exit codes:
+  0  override cleared (a no-op when none was set)
+  1  project could not be resolved
+  2  usage error: unknown option, missing option argument, missing service, or missing branch
 EOF
 }

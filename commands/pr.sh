@@ -9,6 +9,8 @@
 #   wt pr c -r                    # Interactive resolve
 #   wt pr c -p nexus              # Specific project
 
+# Dispatch `wt pr` to its `conflicts` subcommand, or to `_pr_open` for everything else.
+# Args: $1 subcommand-or-branch (optional), plus flags
 cmd_pr() {
     case "${1:-}" in
         conflicts|c)
@@ -24,24 +26,55 @@ cmd_pr() {
     esac
 }
 
+# Print the `wt pr` help page.
 show_pr_help() {
-    echo -e "${BOLD}wt pr${NC} - PR management"
-    echo ""
-    echo "Usage:"
-    echo "  wt pr                         # Open PR in browser (auto-detect)"
-    echo "  wt pr <branch>                # Open PR for specific branch"
-    echo "  wt pr conflicts               # Current project"
-    echo "  wt pr conflicts -a            # All projects"
-    echo "  wt pr conflicts -r            # Interactive resolve"
-    echo "  wt pr conflicts -p <project>  # Specific project"
-    echo ""
-    echo "Alias: wt pr c"
+    cat << 'EOF'
+Opens a branch's pull request in the browser, or manages conflicting ones.
+
+Usage: wt pr [<branch>] [options]
+
+Subcommands:
+  conflicts (c)     List and resolve PRs with merge conflicts — see wt pr conflicts --help
+
+Options:
+  -h, --help        Show this page
+
+Examples:
+  wt pr
+  wt pr feature/auth
+  wt pr conflicts
+
+Exit codes:
+  0  success
+  1  no branch detected and none given, or no PR found for the branch
+  2  usage error: unknown option
+EOF
 }
 
 # ─── wt pr [branch] — open in browser ──────────────────────────────────────
 
+# Parse `wt pr [branch]` arguments and open that branch's PR in the browser.
+# Args: $1 branch (optional; auto-detected from a worktree when omitted), plus flags
 _pr_open() {
-    local branch="${1:-}"
+    local branch=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                show_pr_help
+                return 0
+                ;;
+            -*)
+                die_unknown_option "pr" "$1"
+                ;;
+            *)
+                if [[ -z "$branch" ]]; then
+                    branch="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
 
     if [[ -z "$branch" ]]; then
         local git_dir git_common
@@ -75,6 +108,41 @@ _pr_open() {
 
 # ─── wt pr conflicts — list and resolve conflicting PRs ────────────────────
 
+# Print the `wt pr conflicts` help page.
+show_pr_conflicts_help() {
+    cat << 'EOF'
+Lists open PRs with merge conflicts, and can drive resolving one.
+
+Defaults to the current project; -a widens to every configured project. With -r,
+picks one PR from an fzf list and rebases or merges its branch onto the base.
+
+Usage: wt pr conflicts [options]
+
+Aliases: wt pr c
+
+Options:
+  -p, --project <name>   Restrict to one project (default: the current project)
+  -a, --all               Search every configured project (default: off)
+  -r, --resolve           Interactively rebase or merge the picked PR (default: off — list only)
+  -q, --quick             Plain list, no fzf picker even with -r (default: off)
+  -h, --help              Show this page
+
+Examples:
+  wt pr conflicts
+  wt pr conflicts -a
+  wt pr conflicts -r
+  wt pr conflicts -p nexus
+
+Exit codes:
+  0  success
+  1  no project detected and none given, or fzf missing for -r
+  2  usage error: unknown option or missing argument
+EOF
+}
+
+# Parse `wt pr conflicts` arguments, list every conflicting open PR, and (with
+# -r) drive an fzf picker into a rebase or merge resolution.
+# Args: flags only
 cmd_pr_conflicts() {
     local filter=""
     local all=false
@@ -83,22 +151,20 @@ cmd_pr_conflicts() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -p|--project) filter="$2"; shift 2 ;;
+            -p|--project)
+                require_optarg "pr conflicts" "$1" "${2:-}"
+                filter="$2"
+                shift 2
+                ;;
             -a|--all) all=true; shift ;;
             -r|--resolve) resolve=true; shift ;;
             -q|--quick) quick=true; shift ;;
             -h|--help)
-                echo -e "${BOLD}wt pr conflicts${NC} - Show PRs with merge conflicts"
-                echo ""
-                echo "Usage:"
-                echo "  wt pr conflicts              # Current project"
-                echo "  wt pr conflicts -a           # All projects"
-                echo "  wt pr conflicts -r           # Interactive resolve"
-                echo "  wt pr conflicts -q           # List only (no picker)"
-                echo "  wt pr conflicts -p nexus     # Specific project"
-                echo ""
-                echo "Alias: wt pr c"
+                show_pr_conflicts_help
                 return 0
+                ;;
+            -*)
+                die_unknown_option "pr conflicts" "$1"
                 ;;
             *) shift ;;
         esac

@@ -6,21 +6,30 @@
 #   wt code <branch>          # Open by branch name
 #   wt cursor <branch>        # Alias
 
+# Parse `wt code` arguments and open the resolved worktree in the configured editor.
+# Args: $1 branch (optional), plus flags
 cmd_code() {
-    local branch="${1:-}"
-    local wt_path=""
+    local branch=""
 
-    if [[ "$branch" == "-h" || "$branch" == "--help" ]]; then
-        echo -e "${BOLD}wt code${NC} - Open a worktree in an editor"
-        echo ""
-        echo "Usage:"
-        echo "  wt code                   # Auto-detect from cwd or fzf picker"
-        echo "  wt code <branch>          # Open by branch name"
-        echo ""
-        echo "Editor is configurable in ~/.config/wt/config.yaml -> editor"
-        echo "Fallback: \$VISUAL > \$EDITOR > open"
-        return 0
-    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                show_code_help
+                return 0
+                ;;
+            -*)
+                die_unknown_option "code" "$1"
+                ;;
+            *)
+                if [[ -z "$branch" ]]; then
+                    branch="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    local wt_path=""
 
     if [[ -z "$branch" ]]; then
         # Auto-detect from current dir
@@ -59,4 +68,37 @@ cmd_code() {
 
     echo -e "${BOLD}Opening in ${editor_cmd##*/}:${NC} $wt_path"
     "$editor_cmd" "$wt_path"
+}
+
+# Print the `wt code` / `wt cursor` help page.
+show_code_help() {
+    cat << 'EOF'
+Opens a worktree in the configured editor.
+
+With no branch, auto-detects the worktree from the current directory, or falls
+back to an fzf picker when the current directory is not one.
+
+Usage: wt code [<branch>] [options]
+
+Arguments:
+  <branch>          Branch name (auto-detected inside a worktree, else an fzf picker)
+
+Aliases: wt cursor
+
+Options:
+  -h, --help        Show this page
+
+Editor is configurable in ~/.config/wt/config.yaml -> editor.
+Fallback: $VISUAL > $EDITOR > open
+
+Examples:
+  wt code
+  wt code feature/auth
+  wt cursor feature/auth
+
+Exit codes:
+  0  success
+  1  no worktree found for the branch, or not in a worktree with no fzf installed
+  2  usage error: unknown option
+EOF
 }

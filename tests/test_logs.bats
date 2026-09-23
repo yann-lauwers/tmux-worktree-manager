@@ -28,7 +28,7 @@ teardown() {
 @test "logs shows help with --help" {
     run cmd_logs --help
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"Capture"* ]]
+    [[ "$output" == *"Prints the tail"* ]]
 }
 
 @test "logs errors without branch when outside worktree" {
@@ -62,5 +62,5 @@ services: []"
 @test "logs --all flag is accepted" {
     run cmd_logs --all --help 2>&1
     # --help takes precedence
-    [[ "$output" == *"Capture"* ]]
+    [[ "$output" == *"Prints the tail"* ]]
 }

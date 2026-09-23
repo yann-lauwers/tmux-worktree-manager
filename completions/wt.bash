@@ -5,7 +5,7 @@ _wt_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="create c open o ls rm prune code cursor pr delete list start up stop down status st health hc attach a run exec init config ports send s logs log panes doctor doc help version"
+    local commands="create c open o ls rm prune code cursor pr delete list start up stop down status st health hc attach a run exec init config ports send s logs log panes doctor doc db help version"
 
     # Get current word and previous word
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -119,7 +119,7 @@ _wt_completions() {
             ;;
         start|up)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-s --service -a --all --attach -p --project -h --help" -- "$cur"))
+                COMPREPLY=($(compgen -W "-s --service --front --back --tmux --attach -p --project -h --help" -- "$cur"))
             else
                 # Complete with worktrees and service names
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
@@ -191,6 +191,14 @@ _wt_completions() {
                 # First positional could be set/clear subcommand or branch
                 local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
                 COMPREPLY=($(compgen -W "set clear $worktrees" -- "$cur"))
+            fi
+            ;;
+        db)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+            else
+                local worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
+                COMPREPLY=($(compgen -W "reset url dump use-remote detach $worktrees" -- "$cur"))
             fi
             ;;
         send|s)

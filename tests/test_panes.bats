@@ -31,7 +31,7 @@ teardown() {
 @test "panes shows help with --help" {
     run cmd_panes --help
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"List tmux panes"* ]]
+    [[ "$output" == *"Lists the tmux panes"* ]]
 }
 
 @test "panes errors without branch when outside worktree" {

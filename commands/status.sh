@@ -1,6 +1,8 @@
 #!/bin/bash
 # commands/status.sh - Show worktree status
 
+# Parse `wt status` arguments and print a worktree's git, service and DB status.
+# Args: $1 branch (optional; detected from the current directory when omitted), plus flags
 cmd_status() {
     local branch=""
     local show_services=0
@@ -14,7 +16,7 @@ cmd_status() {
                 shift
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "status" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
@@ -23,9 +25,7 @@ cmd_status() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_status_help
-                return 1
+                die_unknown_option "status" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -40,9 +40,7 @@ cmd_status() {
     if [[ -z "$branch" ]]; then
         branch=$(detect_worktree_branch)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required"
-            show_status_help
-            return 1
+            die_usage "status" "branch name is required" "wt status <branch> [options]"
         fi
         log_info "Detected worktree branch: $branch"
     fi
@@ -150,24 +148,31 @@ cmd_status() {
     echo ""
 }
 
+# Print the `wt status` help page.
 show_status_help() {
     cat << 'EOF'
-Usage: wt status <branch> [options]
+Prints a worktree's git status, ports, services and database connection info.
+Reads state only: the state and slots files are left unchanged.
 
-Show detailed status of a worktree.
+Usage: wt status [<branch>] [options]
 
 Arguments:
-  <branch>          Branch name of the worktree
+  <branch>          Branch name (detected from the current directory when omitted)
 
 Options:
-  --services        Show detailed service status
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
-
-Reads state only: the state and slots files are left unchanged.
+  --services              Show detailed per-service status, including ports (default: off — shown
+                          anyway when the project has services)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt status feature/auth
   wt status feature/auth --services
+  wt status                        # branch detected from the current directory
+
+Exit codes:
+  0  success
+  1  project not found, or worktree not found for the branch
+  2  usage error: unknown option, missing argument, or no branch detected
 EOF
 }
