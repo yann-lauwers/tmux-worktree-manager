@@ -178,6 +178,7 @@ _wt() {
                 status|st)
                     _arguments \
                         '--services[Show detailed service status]' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:worktree:_wt_worktrees'
@@ -185,6 +186,7 @@ _wt() {
                 health|hc)
                     _arguments \
                         '(-t --timeout)'{-t,--timeout}'[Seconds to wait per service]:seconds:' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:worktree:_wt_worktrees'
@@ -213,6 +215,7 @@ _wt() {
                 ports)
                     _arguments \
                         '(-c --check)'{-c,--check}'[Check port availability]' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:subcommand or worktree:(set clear)'
@@ -243,12 +246,14 @@ _wt() {
                 doctor|doc)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                        '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 ls)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-q --quick)'{-q,--quick}'[Skip PR status check]' \
+                        '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 rm)

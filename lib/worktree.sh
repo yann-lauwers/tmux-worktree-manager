@@ -541,3 +541,38 @@ detect_main_repo_root() {
     [[ -n "$(detect_project)" ]] || return 1
     return 0
 }
+
+# Parse a worktree's `git status -b --porcelain=v2` into the fields `wt status`
+# reports, in one git call. Shared by its human and --json paths so both read
+# the same commit, dirty state, and tracking info.
+# Args: $1 worktree path
+# Out: commit (full sha), dirty (true|false), upstream (empty when untracked),
+#      ahead, behind (both "0" when upstream is empty), as one line of
+#      \x1f-separated fields — `read` collapses empty tab-separated fields
+# Side: runs `git status` read-only in $1
+parse_git_worktree_status() {
+    local wt_path="$1"
+    local git_status
+    git_status=$(git -C "$wt_path" status -b --porcelain=v2 2>/dev/null)
+
+    local commit
+    commit=$(echo "$git_status" | grep '^# branch.oid' | cut -d' ' -f3)
+
+    local dirty="false"
+    echo "$git_status" | grep -q '^[12?!]' && dirty="true"
+
+    local upstream
+    upstream=$(echo "$git_status" | grep '^# branch.upstream' | cut -d' ' -f3 || true)
+
+    local ahead="0" behind="0"
+    if [[ -n "$upstream" ]]; then
+        local ab_line
+        ab_line=$(echo "$git_status" | grep '^# branch.ab')
+        ahead=$(echo "$ab_line" | awk '{print $3}' | tr -d '+')
+        behind=$(echo "$ab_line" | awk '{print $4}' | tr -d '-')
+        ahead="${ahead:-0}"
+        behind="${behind:-0}"
+    fi
+
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$commit" "$dirty" "$upstream" "$ahead" "$behind"
+}

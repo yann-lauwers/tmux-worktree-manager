@@ -325,15 +325,13 @@ _path_without() {
 
 # ===== C1 / C5: wt ls, piped, with and without WT_COLOR=always =====
 #
-# lib/smart.sh hardcodes WT_PROJECTS_DIR at $HOME/.config/wt/projects,
-# ignoring WT_CONFIG_DIR (issue #26) — HOME is pointed at a scratch
-# directory carrying the fixture instead of using the WT_CONFIG_DIR machinery
-# the rest of this suite relies on.
+# The fixture lives under WT_CONFIG_DIR like the rest of this suite's; HOME
+# points at a scratch directory so nothing under the real home is read.
 
 _wt_ls_home() {
     local home_dir="$1"
-    mkdir -p "$home_dir/.config/wt/projects"
-    _create_test_config testproj "$home_dir/.config/wt/projects"
+    mkdir -p "$home_dir"
+    _create_test_config testproj
 }
 
 @test "wt ls -q piped emits no ANSI escapes on stdout (C1)" {
