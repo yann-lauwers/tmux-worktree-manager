@@ -1,6 +1,8 @@
 #!/bin/bash
 # commands/list.sh - List worktrees
 
+# Parse `wt list` arguments and print the project's worktrees, or every project's count.
+# Args: flags only
 cmd_list() {
     local project=""
     local show_status=0
@@ -10,7 +12,7 @@ cmd_list() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "list" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
@@ -27,9 +29,7 @@ cmd_list() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_list_help
-                return 1
+                die_unknown_option "list" "$1"
                 ;;
             *)
                 shift
@@ -232,22 +232,28 @@ list_all_projects() {
     echo ""
 }
 
+# Print the `wt list` help page.
 show_list_help() {
     cat << 'EOF'
+Prints the worktrees for one project as a table, or every project's worktree count.
+
+With no project detected and none given, lists every configured project instead.
+
 Usage: wt list [options]
 
-List all worktrees for the current or specified project.
-
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -s, --status      Show status information (session, dirty state)
-  --json            Output as JSON
-  -h, --help        Show this help message
+  -p, --project <name>   Project to list (default: detected from the current directory)
+  -s, --status            Show session and dirty-tree status per worktree (default: off)
+  --json                  Print as a JSON array (default: off)
+  -h, --help              Show this page
 
 Examples:
   wt list
   wt list --status
-  wt list --project myproject
-  wt list --json
+  wt list --project myproject --json
+
+Exit codes:
+  0  success
+  2  usage error: unknown option or missing argument
 EOF
 }

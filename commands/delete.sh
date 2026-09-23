@@ -36,18 +36,20 @@ cmd_delete() {
                 shift
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "${WT_CMD_NAME:-delete}" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
             -h|--help)
-                show_delete_help
+                if [[ "${WT_CMD_NAME:-}" == "prune" ]]; then
+                    show_prune_help
+                else
+                    show_delete_help
+                fi
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_delete_help
-                return 1
+                die_unknown_option "${WT_CMD_NAME:-delete}" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -276,33 +278,105 @@ _delete_batch() {
     fi
 }
 
+# Print the git-guard paragraph shared by the `wt delete`/`wt rm` and `wt
+# prune` help pages — what a direct delete goes through without -f/--force,
+# and what -f drops. Kept in one place so the two pages cannot drift apart;
+# each page states only its own difference around this shared text.
+# Side: writes to stdout
+_wt_delete_guard_text() {
+    cat << 'EOF'
+Without -f, git refuses a dirty or untracked tree and keeps an unmerged
+branch (-d); -f drops both guards at once (-D), discarding uncommitted work
+and an unmerged branch together. Full branch name required — no fuzzy
+matching.
+EOF
+}
+
+# Print the `wt delete` / `wt rm` help page.
 show_delete_help() {
     local cmd="${WT_CMD_NAME:-delete}"
     cat << EOF
+Deletes worktrees: their checkout, branch, ephemeral DB and tunnel together.
+
+Without a branch, opens an interactive fzf picker over all worktrees (merged/closed
+ones first, dirty worktrees flagged \`⚠N uncommitted\`). With --merged the picker is
+limited to worktrees whose PR is merged/closed; add -y to delete them all with no
+prompt. The picker and -y always force both git guards below, the same as -f.
+
+A direct \`wt ${cmd} <branch>\` prompts for confirmation unless -f/--force is given.
+EOF
+    _wt_delete_guard_text
+    cat << EOF
+
 Usage: wt ${cmd} [<branch>] [options]
 
-Delete worktrees. Without a branch, opens an interactive fzf picker over all
-worktrees (merged/closed ones first, dirty worktrees flagged). With --merged the
-picker is limited to worktrees whose PR is merged/closed; add -y to delete them all.
-
 Arguments:
-  <branch>          Branch name (omit for interactive picker)
+  <branch>          Full branch name (omit for the interactive picker)
 
 Options:
-  -f, --force       Force deletion even with uncommitted changes
-  -m, --merged      Restrict the picker to merged/closed-PR worktrees
-  -y, --yes         Non-interactive: delete every matching worktree (pairs with --merged)
-  --keep-branch     Don't delete the git branch
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -f, --force       Skip confirmation and force both git guards (default: off)
+  -m, --merged      Restrict the picker to merged/closed-PR worktrees (default: off)
+  -y, --yes         Non-interactive: delete every matching worktree, pairs with --merged (default:
+                     off)
+  --keep-branch     Don't delete the git branch (default: off)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help        Show this page
 
 Examples:
-  wt ${cmd}                            # picker over all worktrees
-  wt ${cmd} -p nexus                   # picker filtered to one project
-  wt ${cmd} --merged                   # picker over merged/closed only
-  wt ${cmd} --merged -y                # delete all merged/closed (no prompt)
-  wt ${cmd} feature/auth               # direct delete
-  wt ${cmd} feature/auth --force       # skip confirmation
-  wt ${cmd} feature/auth --keep-branch
+  wt ${cmd} feature/auth               # direct delete, prompts first
+  wt ${cmd} feature/auth --force       # skip confirmation, force both guards
+  wt ${cmd} --merged -y                # delete all merged/closed, no prompt
+
+Exit codes:
+  0  success
+  1  worktree not found, or removal failed
+  2  usage error, or the confirmation prompt was declined (including no stdin answer)
+EOF
+}
+
+# Print the `wt prune` help page — prune is the merged/closed-only door into the
+# same picker `show_delete_help` documents, and shares its git-guard paragraph
+# (`_wt_delete_guard_text`), so this page states only its own difference:
+# `<branch>` bypasses --merged and deletes directly.
+show_prune_help() {
+    cat << 'EOF'
+Deletes merged/closed worktrees: their checkout, branch, ephemeral DB and tunnel together.
+
+With no branch, opens the same interactive fzf picker as `wt delete --merged` —
+restricted to worktrees whose PR is merged/closed, dirty ones flagged `⚠N
+uncommitted`. Add -y to delete them all with no prompt; the picker and -y always
+force both git guards below, the same as -f.
+
+A direct `wt prune <branch>` deletes that branch directly, regardless of its PR
+state — --merged is ignored once a branch is named. It prompts for confirmation
+unless -f/--force is given.
+EOF
+    _wt_delete_guard_text
+    cat << 'EOF'
+
+Usage: wt prune [<branch>] [options]
+
+Arguments:
+  <branch>          Full branch name (omit for the interactive picker; deletes
+                    directly, ignoring merged/closed state)
+
+Options:
+  -f, --force       Skip confirmation and force both git guards (default: off)
+  -m, --merged      Restrict the picker to merged/closed-PR worktrees (default: on — `wt prune`
+                     always passes it)
+  -y, --yes         Non-interactive: delete every matching worktree (default: off)
+  --keep-branch     Don't delete the git branch (default: off)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help        Show this page
+
+Examples:
+  wt prune                             # picker over merged/closed worktrees
+  wt prune -y                          # delete all merged/closed, no prompt
+  wt prune feature/auth                # direct delete, ignores merged/closed state
+
+Exit codes:
+  0  success
+  1  worktree not found, or removal failed
+  2  usage error, or the confirmation prompt was declined (including no stdin answer)
 EOF
 }

@@ -166,9 +166,23 @@ Open an issue with the `enhancement` label and describe:
 ### Adding a New Command
 
 1. Create `commands/<name>.sh` with a `cmd_<name>()` function.
-2. Register the command in the dispatcher in `wt.sh`.
-3. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh`.
-4. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
+2. Register the command in the dispatcher in `wt.sh`, **canonical name first** in the case
+   arm (`name|alias)`, never `alias|name)`) — the standard unknown-option line and the
+   surface test both name whichever token comes first.
+3. Give it a `show_<name>_help()` page: a description paragraph first (ending in a period,
+   no `Usage:` line first), every flag listed under `Options:` with its `default:` stated,
+   every subcommand named somewhere on the page, and an `Exit codes:` block listing at
+   least `0` and `2`. Route every unrecognised flag through `die_unknown_option "<name>" "$1"`
+   and every other usage error through `die_usage`, both using that same canonical name —
+   this is the page-shape contract `tests/help_surface.bash` enforces by discovering the
+   command from source, not from a hand-kept list.
+4. Keep the argument parser in the `while [[ $# -gt 0 ]] ... case "$1" in ... esac; done`
+   shape every other command uses — that shape is what the surface test's discovery reads
+   flags and subcommands out of.
+5. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh`.
+6. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
+7. Run `bats tests/test_help_surface.bats` — a command, subcommand or flag with no
+   conforming page fails it by name.
 
 ---
 
@@ -197,6 +211,7 @@ bats tests/ --verbose-run
 - **Every new feature** must include unit tests in the relevant `tests/test_<module>.bats` **and** integration tests in `tests/test_commands.bats` or `tests/test_e2e.bats`.
 - **Every bug fix** must include a regression test — write a test that would have caught the bug *before* your fix, then verify it passes *after*.
 - **Prefer tests without tmux** — most logic can be exercised by calling library functions directly. Reserve tmux-dependent tests for `test_e2e.bats`.
+- **Every command or flag added or changed** must keep `bats tests/test_help_surface.bats` green — it discovers the whole command/subcommand/flag surface from source and checks each one's `--help` page against the page-shape contract; see `tests/help_surface.bash` for the rules it enforces.
 
 ### Writing Tests
 

@@ -5,7 +5,12 @@
 WT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export WT_SCRIPT_DIR
 
-# Create temporary directories for test isolation
+# Create temporary directories for test isolation, and put the test process
+# in a non-git directory: bats itself runs from this repo's own worktree
+# checkout, so a test that never `cd`s away from it would auto-detect a real
+# branch from anything reading cwd (detect_worktree_branch and friends),
+# changing behaviour a fixture never asked for. cd runs last so every path
+# captured above it (WT_CONFIG_DIR and friends) stays absolute.
 setup_test_dirs() {
     TEST_TMPDIR="$(mktemp -d)"
     export WT_CONFIG_DIR="$TEST_TMPDIR/config"
@@ -15,6 +20,7 @@ setup_test_dirs() {
     export WT_LOG_DIR="$WT_DATA_DIR/logs"
 
     mkdir -p "$WT_CONFIG_DIR" "$WT_PROJECTS_DIR" "$WT_DATA_DIR" "$WT_STATE_DIR" "$WT_LOG_DIR"
+    cd "$TEST_TMPDIR"
 }
 
 # Remove temporary directories

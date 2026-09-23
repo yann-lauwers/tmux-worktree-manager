@@ -6,23 +6,28 @@
 #   wt ls -q             # Quick (no PR status)
 #   wt ls -p nexus       # One project
 
+# Print every project's worktrees, with each one's PR status fetched in parallel.
+# Args: flags only
+# Out: one section per project to stdout, plus a total count
 cmd_smartlist() {
     local filter=""
     local smart_quick=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -p|--project) filter="$2"; shift 2 ;;
+            -p|--project)
+                require_optarg "ls" "$1" "${2:-}"
+                filter="$2"
+                shift 2
+                ;;
             -q|--quick) smart_quick=true; shift ;;
             -s|--status) smart_quick=false; shift ;;
             -h|--help)
-                echo -e "${BOLD}wt ls${NC} - List worktrees across all projects"
-                echo ""
-                echo "Usage:"
-                echo "  wt ls                # All projects with PR status"
-                echo "  wt ls -q             # Quick (no PR check)"
-                echo "  wt ls -p nexus       # One project"
+                show_ls_help
                 return 0
+                ;;
+            -*)
+                die_unknown_option "ls" "$1"
                 ;;
             *) shift ;;
         esac
@@ -120,4 +125,30 @@ cmd_smartlist() {
     else
         echo -e "${DIM}Total: ${total} worktree(s)${NC}"
     fi
+}
+
+# Print the `wt ls` help page.
+show_ls_help() {
+    cat << 'EOF'
+Lists every project's worktrees, one section per project.
+
+Each worktree's PR status is fetched with `gh`, in parallel, unless -q is given.
+
+Usage: wt ls [options]
+
+Options:
+  -p, --project <name>   Restrict to one project (default: all projects)
+  -q, --quick             Skip the PR-status lookup (default: off)
+  -s, --status            Fetch PR status (default: on — cancels an earlier -q)
+  -h, --help              Show this page
+
+Examples:
+  wt ls
+  wt ls -q
+  wt ls -p nexus
+
+Exit codes:
+  0  success
+  2  usage error: unknown option or missing argument
+EOF
 }

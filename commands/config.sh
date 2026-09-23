@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/config.sh - View and edit configuration
 
+# View or edit a project's or the global wt configuration file.
+# Args: none (reads -e/--edit, -g/--global, -p/--project, --path, and [project] from argv)
+# Side: may write a default global config, opens $EDITOR with --edit, or prints the file/path
 cmd_config() {
     local edit=0
     local global=0
@@ -19,7 +22,7 @@ cmd_config() {
                 shift
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "config" "$1" "${2:-}" "wt config [options] [project]"
                 project="$2"
                 shift 2
                 ;;
@@ -32,9 +35,7 @@ cmd_config() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_config_help
-                return 1
+                die_unknown_option "config" "$1"
                 ;;
             *)
                 if [[ -z "$project" ]]; then
@@ -114,21 +115,28 @@ EOF
     fi
 }
 
+# Print the 'wt config' help page to stdout.
 show_config_help() {
     cat << 'EOF'
+Reads a project's or the global wt configuration file and prints it to stdout, syntax-highlighted
+when bat or pygmentize is on PATH.
+Opens the file in $EDITOR instead with --edit; --global writes a default global config first if none
+exists yet, a project config dies if its own file is missing.
+
 Usage: wt config [options] [project]
 
-View or edit wt configuration.
-
 Arguments:
-  [project]         Project name (auto-detected if not specified)
+  [project]         Project name (default: detected from the current directory)
 
 Options:
-  -e, --edit        Open configuration in editor
-  -g, --global      View/edit global configuration
-  -p, --project     Specify project name
-  --path            Just print the config file path
-  -h, --help        Show this help message
+  -e, --edit          Open the configuration in $EDITOR instead of printing it (default: off —
+                      prints)
+  -g, --global        Act on the global configuration instead of a project's (default: off —
+                      project config)
+  -p, --project <name>   Project name (default: detected from the current directory, or the
+                         [project] argument)
+  --path              Print only the config file's path (default: off)
+  -h, --help            Show this page
 
 Examples:
   wt config                   # Show current project config
@@ -137,5 +145,10 @@ Examples:
   wt config --global --edit   # Edit global config
   wt config myproject         # Show specific project config
   wt config --path            # Print config file path
+
+Exit codes:
+  0  printed, edited, or path shown
+  1  no project detected and none given, or no configuration found for the project
+  2  usage error: unknown option or missing option argument
 EOF
 }

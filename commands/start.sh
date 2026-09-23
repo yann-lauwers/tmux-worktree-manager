@@ -1,10 +1,13 @@
 #!/bin/bash
 # commands/start.sh - Start services in a worktree
 
+# Parse `wt start` arguments, resolve a branch/services context (in-worktree,
+# main repo root, or explicit branch), and start the resolved services.
+# Args: $1 branch (optional; auto-detected inside a worktree or the main repo root),
+#       further positionals treated as service names, plus flags
 cmd_start() {
     local branch=""
     local service=""
-    local all=0
     local attach=0
     local use_tmux=0
     local project=""
@@ -14,16 +17,9 @@ cmd_start() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -s|--service)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "start" "$1" "${2:-}"
                 service="$2"
                 shift 2
-                ;;
-            -a|--all)
-                all=1
-                shift
                 ;;
             --attach)
                 attach=1
@@ -42,10 +38,7 @@ cmd_start() {
                 shift
                 ;;
             -p|--project)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "start" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
@@ -54,9 +47,7 @@ cmd_start() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_start_help
-                return 1
+                die_unknown_option "start" "$1"
                 ;;
             *)
                 # Collect positional arguments
@@ -106,9 +97,7 @@ cmd_start() {
             fi
         fi
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (not in a worktree)"
-            show_start_help
-            return 1
+            die_usage "start" "branch name is required (not in a worktree)" "wt start <branch> [service...] [options]"
         fi
     fi
 
@@ -194,31 +183,40 @@ cmd_start() {
     fi
 }
 
+# Print the `wt start` / `wt up` help page.
 show_start_help() {
     cat << 'EOF'
+Starts services in the current terminal, all of them by default.
+
+The branch is auto-detected inside a registered worktree, or at the main repo
+root; outside both, the first positional is the branch.
+
 Usage: wt start [options]
        wt start <branch> [options]
 
-Start services in the current terminal. Runs all services by default.
-When run inside a registered worktree, the branch is auto-detected.
-
 Arguments:
-  <branch>          Branch name (auto-detected inside a worktree)
+  <branch>          Branch name (auto-detected inside a worktree or at the main repo root)
+
+Aliases: wt up
 
 Options:
-  --front           Start frontend only
-  --back            Start backend only
-  -s, --service     Start a specific service by name
-  --tmux            Legacy mode: send commands to tmux panes
-  --attach          Attach to tmux session (requires --tmux)
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  --front, --frontend     Start the frontend service only (default: off — all services)
+  --back, --backend       Start the backend service only (default: off — all services)
+  -s, --service <name>   Start one service by name (default: all services)
+  --tmux                 Legacy mode: send commands to tmux panes (default: off — direct mode)
+  --attach               Attach to the tmux session, requires --tmux (default: off)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help             Show this page
 
 Examples:
   wt start                         # Start all (inside worktree)
   wt start feat/draft-page         # Start all (outside worktree)
   wt start --front                 # Frontend only
-  wt start --back                  # Backend only
   wt start feat/auth --back        # Backend only for specific branch
+
+Exit codes:
+  0  success
+  1  no slot for the worktree, or one or more services failed to start
+  2  usage error: unknown option, missing argument, or missing branch outside a worktree
 EOF
 }

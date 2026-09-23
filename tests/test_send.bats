@@ -30,7 +30,7 @@ teardown() {
 @test "send shows help with --help" {
     run cmd_send --help
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"Send a command"* ]]
+    [[ "$output" == *"Sends a command"* ]]
 }
 
 @test "send errors without enough arguments" {
@@ -60,4 +60,31 @@ services: []"
     # May fail because window "main" does not match get_session_name output,
     # but should not crash on pane resolution
     true  # Verify no crash
+}
+
+@test "send stops option parsing once its pane target is set" {
+    local project="sendtest3"
+    create_yaml_fixture "$WT_PROJECTS_DIR/${project}.yaml" "name: sendtest3
+repo_path: /tmp
+tmux:
+  session: wt-test-send
+  windows:
+    - name: test
+      panes:
+        - command: echo hello
+services: []"
+    create_worktree_state "$project" "main" "/tmp" 0
+
+    # Stub the tmux-resolution and send functions: the parsing behaviour is
+    # what this pins, not a real tmux session.
+    session_exists() { return 0; }
+    window_exists() { return 0; }
+    get_tmux_session_name() { echo "wt-test-send"; }
+    get_session_name() { echo "win"; }
+
+    local captured_cmd=""
+    send_to_pane() { captured_cmd="$4"; }
+
+    cmd_send -p "$project" main 0 ls -la
+    [[ "$captured_cmd" == "ls -la" ]]
 }

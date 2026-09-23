@@ -5,6 +5,8 @@
 # "is it healthy now?", unlike `wt start`, which waits for boot.
 WT_HEALTH_DEFAULT_TIMEOUT=5
 
+# Parse `wt health` arguments and live-probe the resolved worktree's services.
+# Args: $1 branch (optional; detected from the current directory when omitted), plus flags
 cmd_health() {
     local branch=""
     local project=""
@@ -14,12 +16,12 @@ cmd_health() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -t|--timeout)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "health" "$1" "${2:-}"
                 timeout="$2"
                 shift 2
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "health" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
@@ -28,9 +30,7 @@ cmd_health() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_health_help
-                return 1
+                die_unknown_option "health" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -48,9 +48,7 @@ cmd_health() {
         # to the checked-out branch so `wt health` works there like `wt start`.
         [[ -z "$branch" ]] && branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required"
-            show_health_help
-            return 1
+            die_usage "health" "branch name is required" "wt health [<branch>] [options]"
         fi
     fi
 
@@ -145,35 +143,37 @@ cmd_health() {
     return 0
 }
 
+# Print the `wt health` / `wt hc` help page.
 show_health_help() {
     cat << 'EOF'
-Usage: wt health [branch] [options]
-
-Live-probe a worktree's services and report per-service health.
+Live-probes a worktree's services right now and reports per-service health.
 
 Unlike `wt status`, which reports the status recorded when services were last
 started, this runs the health check declared for each service right now. A
 listening port is not health: a process can hold its port open while failing
-every request.
+every request. Services with no health_check declared are probed for a
+listening port and marked `tcp*`.
+
+Usage: wt health [<branch>] [options]
 
 Arguments:
-  [branch]          Branch name (auto-detected inside a worktree)
+  <branch>          Branch name (auto-detected inside a worktree, or the main repo root)
+
+Aliases: wt hc
 
 Options:
-  -t, --timeout N   Seconds to wait per service (default: 5)
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
-
-Exit codes:
-  0                 Every service healthy
-  1                 A service is unhealthy, or the worktree is not managed by wt
-
-Services with no health_check declared are probed for a listening port and
-marked `tcp*`.
+  -t, --timeout <seconds>   Seconds to wait per service (default: 5)
+  -p, --project <name>      Project to act on (default: detected from the current directory)
+  -h, --help                 Show this page
 
 Examples:
   wt health
   wt health feature/auth
   wt health feature/auth --timeout 15
+
+Exit codes:
+  0  every service healthy
+  1  a service is unhealthy, or the worktree is not managed by wt
+  2  usage error: unknown option, missing argument, or no branch detected
 EOF
 }

@@ -63,6 +63,45 @@ die() {
     exit 1
 }
 
+# Die with the standard usage-error line for a command or subcommand, on stderr,
+# plain (no color, unlike log_error — a usage error is parsed by scripts and by
+# the surface test, so its wording is exact and never routed through the color codes).
+# Args: $1 cmd-words (e.g. "attach", "db reset"), $2 detail, $3 accepted form (optional)
+# Side: writes to stderr, exits 2
+die_usage() {
+    local cmd_words="$1"
+    local detail="$2"
+    local form="${3:-}"
+
+    printf "wt %s: %s \xe2\x80\x94 see 'wt %s --help'\n" "$cmd_words" "$detail" "$cmd_words" >&2
+    if [[ -n "$form" ]]; then
+        printf 'usage: %s\n' "$form" >&2
+    fi
+    exit 2
+}
+
+# Die with the standard unknown-option line for a command or subcommand.
+# Args: $1 cmd-words, $2 the rejected flag
+# Side: writes to stderr, exits 2 (via die_usage)
+die_unknown_option() {
+    die_usage "$1" "unknown option '$2'"
+}
+
+# Die with the standard missing-argument line when a flag's value is empty —
+# a no-op when the value is non-empty, so a caller runs it unconditionally
+# instead of guarding it behind its own `[[ -z ]]` check.
+# Args: $1 cmd-words, $2 the flag, $3 the value as read (may be empty/unset), $4 accepted form (optional)
+# Side: writes to stderr, exits 2 (via die_usage) when $3 is empty
+require_optarg() {
+    local cmd_words="$1"
+    local flag="$2"
+    local value="$3"
+    local form="${4:-}"
+
+    [[ -z "$value" ]] && die_usage "$cmd_words" "option $flag requires an argument" "$form"
+    return 0
+}
+
 # Check if command exists
 command_exists() {
     command -v "$1" &>/dev/null

@@ -7,30 +7,36 @@
 #   wt open NEX-1500              # Fuzzy match by Linear ID
 #   wt open -p nexus              # Filter to one project
 
+# Parse `wt open` arguments and hand off to the resolved opener (cmux, tmux, or a
+# plain `cd` into a subshell).
+# Args: $1 branch-or-query (optional), plus flags
+# Side: execs into the opener; never returns on success
 cmd_open() {
     local query=""
     local project=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -p|--project) project="$2"; shift 2 ;;
-            -a|--all) project=""; shift ;;
+            -p|--project)
+                require_optarg "open" "$1" "${2:-}"
+                project="$2"
+                shift 2
+                ;;
+            -a|--all)
+                project=""
+                shift
+                ;;
             -h|--help)
-                echo -e "${BOLD}wt open${NC} - Open a worktree"
-                echo ""
-                echo "Usage:"
-                echo "  wt open                        # fzf picker (all projects)"
-                echo "  wt open nex-1500/fix-chat      # Open by branch name"
-                echo "  wt open NEX-1500               # Fuzzy match"
-                echo "  wt open -p nexus               # Filter to one project"
-                echo "  wt open -a                     # All projects (default)"
-                echo ""
-                echo "Opener is configurable in ~/.config/wt/config.yaml -> opener"
-                echo "Auto-detects: cmux > tmux > cd"
+                show_open_help
                 return 0
                 ;;
-            -*) die "Unknown option: $1" ;;
-            *) query="$1"; shift ;;
+            -*)
+                die_unknown_option "open" "$1"
+                ;;
+            *)
+                query="$1"
+                shift
+                ;;
         esac
     done
 
@@ -73,4 +79,37 @@ cmd_open() {
             exec "$SHELL"
             ;;
     esac
+}
+
+# Print the `wt open` / `wt o` help page.
+show_open_help() {
+    cat << 'EOF'
+Opens a worktree in the resolved opener.
+
+With no query, opens an fzf picker; with one, fuzzy-matches it by branch or Linear ID.
+
+Usage: wt open [<branch-or-query>] [options]
+
+Arguments:
+  <branch-or-query>  Branch name, directory name, or Linear ID (omit for the fzf picker)
+
+Aliases: wt o
+
+Options:
+  -p, --project <name>   Restrict the picker/match to one project (default: all projects)
+  -a, --all               Search all projects (default: on — cancels an earlier -p)
+  -h, --help              Show this page
+
+Opener is configurable in ~/.config/wt/config.yaml -> opener. Auto-detects: cmux > tmux > cd.
+
+Examples:
+  wt open
+  wt open nex-1500/fix-chat
+  wt open -p nexus
+
+Exit codes:
+  0  success
+  1  no worktree matches the query
+  2  usage error: unknown option or missing argument
+EOF
 }

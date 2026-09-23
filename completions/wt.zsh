@@ -42,8 +42,18 @@ _wt() {
         'doc:Run diagnostic checks (alias)'
         'init:Initialize project configuration'
         'config:View/edit configuration'
+        'db:Manage a worktree'"'"'s ephemeral Postgres'
         'help:Show help'
         'version:Show version'
+    )
+
+    local -a db_subcommands
+    db_subcommands=(
+        'reset:Stop, wipe, and recreate the ephemeral Postgres'
+        'url:Print the database connection URL'
+        'dump:Refresh the cached seed-source dump'
+        'use-remote:Point env refs at the main repo'"'"'s remote DB'
+        'detach:Alias for use-remote'
     )
 
     # Function to get worktree branches
@@ -79,6 +89,11 @@ _wt() {
             services=(${(f)"$(yq -r '.services[].name // empty' "$config" 2>/dev/null)"})
             _describe 'service' services
         fi
+    }
+
+    # Function to complete `wt db`'s subcommand words
+    _wt_db_subcommands() {
+        _describe 'db subcommand' db_subcommands
     }
 
     # Main completion logic
@@ -129,11 +144,18 @@ _wt() {
                 start|up)
                     _arguments \
                         '(-s --service)'{-s,--service}'[Start specific service]:service:_wt_services' \
-                        '(-a --all)'{-a,--all}'[Start all services]' \
-                        '--attach[Attach to tmux after starting]' \
+                        '--front[Start frontend only]' \
+                        '--back[Start backend only]' \
+                        '--tmux[Legacy mode: send commands to tmux panes]' \
+                        '--attach[Attach to tmux after starting (requires --tmux)]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '*:worktree or service:_wt_worktrees'
+                    ;;
+                db)
+                    _arguments \
+                        '(-h --help)'{-h,--help}'[Show help]' \
+                        '1: :_wt_db_subcommands'
                     ;;
                 stop|down)
                     _arguments \
