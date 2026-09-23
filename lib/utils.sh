@@ -1,38 +1,84 @@
 #!/bin/bash
 # lib/utils.sh - Logging, colors, and common utilities
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-# shellcheck disable=SC2034 # read by lib/smart.sh, part of this file's exported color palette
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m' # No Color
+# The raw escape codes behind every color variable. wt_color_init assigns
+# these (or '') to the stdout names below and to their E_-prefixed stderr
+# twins, decided independently per stream — never referenced directly outside
+# this block.
+_WT_ESC_RED='\033[0;31m'
+_WT_ESC_GREEN='\033[0;32m'
+_WT_ESC_YELLOW='\033[0;33m'
+_WT_ESC_BLUE='\033[0;34m'
+_WT_ESC_MAGENTA='\033[0;35m'
+_WT_ESC_CYAN='\033[0;36m'
+_WT_ESC_BOLD='\033[1m'
+_WT_ESC_DIM='\033[2m'
+_WT_ESC_NC='\033[0m' # No Color
+
+# Decide whether one stream gets colour. WT_COLOR=always wins outright —
+# including over a piped stream. Failing that, a non-empty NO_COLOR (an empty
+# NO_COLOR= counts as unset, per no-color.org) turns colour off regardless of
+# the terminal. Failing that, the stream's own tty test decides. Pure: reads
+# only WT_COLOR/NO_COLOR, so the same decision is reproducible from a test
+# with no real terminal in play. Answers by exit status, so the caller forks
+# no subshell to read it.
+# Args: $1 is_tty (1 when that stream is a terminal, 0 otherwise)
+# Out: exit 0 (colour on) or 1 (colour off)
+_wt_color_decide() {
+    if [[ "${WT_COLOR:-}" == "always" ]]; then
+        return 0
+    elif [[ -n "${NO_COLOR:-}" ]]; then
+        return 1
+    fi
+    [[ "$1" == "1" ]]
+}
+
+# Decide colour for stdout and stderr independently — a piped stdout with a
+# terminal stderr (or the reverse) gets colour on one stream only — then
+# assign every color variable this file exports: the plain names
+# (RED/GREEN/.../NC) for stdout call sites, the E_-prefixed twins
+# (E_RED/E_GREEN/.../E_NC) for stderr call sites, log_* included. Called once
+# at the bottom of this block so every sourcer (wt.sh, and a bats load_lib
+# "utils") gets it; safe to call again — tests re-call it after exporting
+# WT_COLOR/NO_COLOR to redecide.
+# Side: sets _WT_COLOR_OUT, _WT_COLOR_ERR, and every color variable above
+wt_color_init() {
+    local out_tty=0 err_tty=0 name esc
+    [[ -t 1 ]] && out_tty=1
+    [[ -t 2 ]] && err_tty=1
+
+    _WT_COLOR_OUT=0; _wt_color_decide "$out_tty" && _WT_COLOR_OUT=1
+    _WT_COLOR_ERR=0; _wt_color_decide "$err_tty" && _WT_COLOR_ERR=1
+
+    for name in RED GREEN YELLOW BLUE MAGENTA CYAN BOLD DIM NC; do
+        esc="_WT_ESC_$name"
+        if [[ "$_WT_COLOR_OUT" == "1" ]]; then printf -v "$name" '%s' "${!esc}"; else printf -v "$name" '%s' ''; fi
+        if [[ "$_WT_COLOR_ERR" == "1" ]]; then printf -v "E_$name" '%s' "${!esc}"; else printf -v "E_$name" '%s' ''; fi
+    done
+}
+
+wt_color_init
 
 # Logging functions - all output to stderr to not interfere with function return values
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $*" >&2
+    echo -e "${E_BLUE}[INFO]${E_NC} $*" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*" >&2
+    echo -e "${E_GREEN}[SUCCESS]${E_NC} $*" >&2
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $*" >&2
+    echo -e "${E_YELLOW}[WARN]${E_NC} $*" >&2
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
+    echo -e "${E_RED}[ERROR]${E_NC} $*" >&2
 }
 
 log_debug() {
     if [[ "${WT_DEBUG:-}" == "1" ]]; then
-        echo -e "${DIM}[DEBUG]${NC} $*" >&2
+        echo -e "${E_DIM}[DEBUG]${E_NC} $*" >&2
     fi
 }
 
@@ -40,7 +86,7 @@ log_step() {
     local current="$1"
     local total="$2"
     local message="$3"
-    echo -e "${CYAN}[$current/$total]${NC} $message" >&2
+    echo -e "${E_CYAN}[$current/$total]${E_NC} $message" >&2
 }
 
 # Spinner for long-running operations
@@ -86,6 +132,24 @@ die_usage() {
 # Side: writes to stderr, exits 2 (via die_usage)
 die_unknown_option() {
     die_usage "$1" "unknown option '$2'"
+}
+
+# The listing command every not-found message below points a reader at.
+WT_LISTING_CMD="wt ls"
+
+# Die with the standard unknown-branch line for a command whose target branch
+# has no worktree in the given project — one wording shared by every command
+# that resolves a branch, so a caller (human or script) matches one string.
+# Args: $1 cmd-words (e.g. "status", "ports set", "db use-remote"), $2 branch, $3 project
+# Side: writes to stderr, plain (no colour), exits 1
+die_no_worktree() {
+    local cmd_words="$1"
+    local branch="$2"
+    local project="$3"
+
+    printf "wt %s: no worktree for branch '%s' in project %s \xe2\x80\x94 branch names are matched in full; '%s' shows them\n" \
+        "$cmd_words" "$branch" "$project" "$WT_LISTING_CMD" >&2
+    exit 1
 }
 
 # Die with the standard missing-argument line when a flag's value is empty —

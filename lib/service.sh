@@ -43,7 +43,7 @@ start_service() {
     worktree_path=$(get_worktree_path "$project" "$branch")
 
     if [[ -z "$worktree_path" ]] || [[ ! -d "$worktree_path" ]]; then
-        log_error "Worktree not found for branch: $branch"
+        log_error "No recorded path for '$branch'. State may be corrupted."
         return 1
     fi
 
@@ -199,7 +199,7 @@ start_services_direct() {
     worktree_path=$(get_worktree_path "$project" "$branch")
 
     if [[ -z "$worktree_path" ]] || [[ ! -d "$worktree_path" ]]; then
-        log_error "Worktree not found for branch: $branch"
+        log_error "No recorded path for '$branch'. State may be corrupted."
         return 1
     fi
 

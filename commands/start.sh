@@ -106,7 +106,7 @@ cmd_start() {
 
     # Verify worktree exists (skipped at the main repo root — it is the checkout itself)
     if [[ "$is_main_root" -ne 1 ]] && ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
+        die_no_worktree "start" "$branch" "$project"
     fi
 
     # Get slot for this worktree

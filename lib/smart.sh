@@ -178,7 +178,7 @@ smart_pick_worktree() {
 
     # No fzf or non-interactive
     if [[ ! -t 0 ]]; then
-        echo -e "${BOLD}Worktrees:${NC}" >&2
+        echo -e "${E_BOLD}Worktrees:${E_NC}" >&2
         echo "$display_lines" >&2
         die "Multiple worktrees — pass a name: wt open <branch>"
     fi
@@ -235,11 +235,13 @@ smart_pr_badge() {
     draft=$(echo "$pr_json" | jq -r '.isDraft')
 
     local url="https://github.com/${repo_nwo}/pull/${number}"
-    local link_start link_end
-    # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
-    link_start=$(printf '\e]8;;%s\e\\' "$url")
-    # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
-    link_end=$(printf '\e]8;;\e\\')
+    local link_start='' link_end=''
+    if [[ "${_WT_COLOR_OUT:-0}" == "1" ]]; then
+        # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
+        link_start=$(printf '\e]8;;%s\e\\' "$url")
+        # shellcheck disable=SC1003 # trailing \\ is the OSC 8 terminator (ESC \), not an escaped quote
+        link_end=$(printf '\e]8;;\e\\')
+    fi
 
     if [[ "$state" == "MERGED" ]]; then
         printf '%b%s#%s%s merged%b' "$MAGENTA" "$link_start" "$number" "$link_end" "$NC"

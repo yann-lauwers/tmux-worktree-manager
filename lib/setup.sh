@@ -33,15 +33,15 @@ _draw_progress() {
     # Status icon + colors
     local icon color
     case "$status" in
-        running) icon="${_SPINNER_FRAMES:$((spin_idx % ${#_SPINNER_FRAMES})):1}" ; color="$CYAN" ;;
-        done)    icon="✓" ; color="$GREEN" ;;
-        fail)    icon="✗" ; color="$RED" ;;
+        running) icon="${_SPINNER_FRAMES:$((spin_idx % ${#_SPINNER_FRAMES})):1}" ; color="$E_CYAN" ;;
+        done)    icon="✓" ; color="$E_GREEN" ;;
+        fail)    icon="✗" ; color="$E_RED" ;;
     esac
 
     # Move to start of our 2-line region and overwrite
     # \e[2K = clear entire line, \r = carriage return
-    printf "\e[2K\r  ${color}${icon}${NC} ${BOLD}[%d/%d]${NC} %s\n" "$current" "$total" "$label" >&2
-    printf "\e[2K\r  ${color}%s${NC}\r" "$bar" >&2
+    printf "\e[2K\r  ${color}${icon}${E_NC} ${E_BOLD}[%d/%d]${E_NC} %s\n" "$current" "$total" "$label" >&2
+    printf "\e[2K\r  ${color}%s${E_NC}\r" "$bar" >&2
     # Move cursor back up to the label line so next draw overwrites both
     printf "\e[1A\r" >&2
 }
@@ -268,9 +268,9 @@ execute_setup() {
 
             # Dump captured output on failure
             echo "" >&2
-            echo -e "${RED}── output from '$step_name' ──${NC}" >&2
+            echo -e "${E_RED}── output from '$step_name' ──${E_NC}" >&2
             cat "$log_file" >&2
-            echo -e "${RED}── end output ──${NC}" >&2
+            echo -e "${E_RED}── end output ──${E_NC}" >&2
 
             case "$on_failure" in
                 abort)
@@ -295,9 +295,9 @@ execute_setup() {
                         _draw_progress "$progress_idx" "$effective_count" "$step_desc (retry)" "fail"
                         _finish_progress
                         echo "" >&2
-                        echo -e "${RED}── output from '$step_name' (retry) ──${NC}" >&2
+                        echo -e "${E_RED}── output from '$step_name' (retry) ──${E_NC}" >&2
                         cat "$log_file" >&2
-                        echo -e "${RED}── end output ──${NC}" >&2
+                        echo -e "${E_RED}── end output ──${E_NC}" >&2
                         rm -f "$log_file"
                         return 1
                     fi

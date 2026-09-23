@@ -66,7 +66,7 @@ cmd_attach() {
             wt_path=$(get_worktree_path "$project" "$branch")
             create_session "$window_name" "$wt_path" "$PROJECT_CONFIG_FILE" "$window"
         else
-            die "No worktree found for branch: $branch"
+            die_no_worktree "attach" "$branch" "$project"
         fi
     fi
 
