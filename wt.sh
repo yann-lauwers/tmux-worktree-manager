@@ -129,6 +129,9 @@ Environment:
   WT_DATA_DIR        State, logs and generated data (default: ~/.local/share/wt)
   WT_DEBUG           Set to 1 to print [DEBUG] lines (default: unset)
   WT_WARN_DEPS       Set to false to silence optional-dependency warnings (default: true)
+  WT_COLOR           Set to 'always' to force colour and hyperlinks even when piped, overriding
+                    NO_COLOR (default: unset)
+  NO_COLOR           Set (non-empty) to disable colour and hyperlinks even on a terminal (default: unset)
   WT_TMUX_SESSION    tmux session name (default: the current tmux session, else "wt")
   WT_LINEAR_API_KEY  Linear API token for 'wt create <TICKET-ID>' (default: read from pass)
 

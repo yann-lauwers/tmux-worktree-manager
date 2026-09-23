@@ -55,7 +55,7 @@ cmd_status() {
 
     # Check worktree exists
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
+        die_no_worktree "status" "$branch" "$project"
     fi
 
     # Get worktree info

@@ -63,7 +63,7 @@ cmd_health() {
     # Registration gate — an unmanaged checkout has no slot, no ports, and no
     # services. Fail loudly rather than probing invented ports.
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
+        die_no_worktree "health" "$branch" "$project"
     fi
 
     local slot

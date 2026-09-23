@@ -93,7 +93,7 @@ cmd_delete() {
         local has_slot
         has_slot=$(get_slot_for_worktree "$project" "$state_key")
         if [[ -z "$has_state" ]] && [[ -z "$has_slot" ]]; then
-            die "Worktree not found for branch: $branch"
+            die_no_worktree "${WT_CMD_NAME:-delete}" "$branch" "$project"
         fi
         log_warn "Worktree directory not found, cleaning up orphaned state..."
     fi
