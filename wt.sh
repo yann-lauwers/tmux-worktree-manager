@@ -241,7 +241,14 @@ _wt_help_requested() {
     return 1
 }
 
-# Main command dispatcher
+# Resolves the command word to its handler function before check_dependencies
+# and init_config_dirs run, so an unknown command refuses with nothing but
+# its usage line and touches no dependency check or disk write; the resolved
+# handler then runs after those two, unless the word is a help request.
+# Args: $@ wt's own argv
+# Side: check_dependencies, init_config_dirs (unless help was requested);
+#   die_usage / exit 2 on a bad command or bad 'help' invocation; runs the
+#   resolved handler
 main() {
     # Handle no arguments
     if [[ $# -eq 0 ]]; then
@@ -276,6 +283,98 @@ main() {
             ;;
     esac
 
+    # Resolve the command word to its handler — nothing here checks a
+    # dependency or writes to disk, so a word that matches no arm below
+    # exits with its usage line alone. `prune`'s extra `--merged` is held in
+    # prefix_args rather than folded into "$@" here, so it does not reach
+    # _wt_help_requested below and change whether a help request is detected
+    # — the same separation `WT_CMD_NAME="rm" cmd_delete "$@"` gave rm.
+    local handler=""
+    local -a prefix_args=()
+    case "$command" in
+        create|c)
+            handler=cmd_create
+            ;;
+        open|o)
+            handler=cmd_open
+            ;;
+        ls)
+            handler=cmd_smartlist
+            ;;
+        rm)
+            WT_CMD_NAME="rm"
+            handler=cmd_delete
+            ;;
+        prune)
+            # Thin alias: the merged/closed-only door into the unified `wt rm` picker.
+            WT_CMD_NAME="prune"
+            prefix_args=(--merged)
+            handler=cmd_delete
+            ;;
+        code|cursor)
+            handler=cmd_code
+            ;;
+        pr)
+            handler=cmd_pr
+            ;;
+        # Core commands
+        delete)
+            handler=cmd_delete
+            ;;
+        list)
+            handler=cmd_list
+            ;;
+        start|up)
+            handler=cmd_start
+            ;;
+        stop|down)
+            handler=cmd_stop
+            ;;
+        status|st)
+            handler=cmd_status
+            ;;
+        health|hc)
+            handler=cmd_health
+            ;;
+        attach|a)
+            handler=cmd_attach
+            ;;
+        run)
+            handler=cmd_run
+            ;;
+        exec)
+            handler=cmd_exec
+            ;;
+        init)
+            handler=cmd_init
+            ;;
+        config)
+            handler=cmd_config
+            ;;
+        ports)
+            handler=cmd_ports
+            ;;
+        send|s)
+            handler=cmd_send
+            ;;
+        logs|log)
+            handler=cmd_logs
+            ;;
+        panes)
+            handler=cmd_panes
+            ;;
+        doctor|doc)
+            handler=cmd_doctor
+            ;;
+        db)
+            handler=cmd_db
+            ;;
+        *)
+            printf "wt: unknown command '%s' \xe2\x80\x94 see 'wt --help'\n" "$command" >&2
+            exit 2
+            ;;
+    esac
+
     # A command or subcommand's own --help/-h skips dependency checks and
     # directory creation — reading help must never require yq or tmux to be
     # installed, or write anything to disk.
@@ -284,87 +383,11 @@ main() {
         init_config_dirs
     fi
 
-    # Dispatch to command handlers
-    case "$command" in
-        create|c)
-            cmd_create "$@"
-            ;;
-        open|o)
-            cmd_open "$@"
-            ;;
-        ls)
-            cmd_smartlist "$@"
-            ;;
-        rm)
-            WT_CMD_NAME="rm" cmd_delete "$@"
-            ;;
-        prune)
-            # Thin alias: the merged/closed-only door into the unified `wt rm` picker.
-            WT_CMD_NAME="prune" cmd_delete --merged "$@"
-            ;;
-        code|cursor)
-            cmd_code "$@"
-            ;;
-        pr)
-            cmd_pr "$@"
-            ;;
-        # Core commands
-        delete)
-            cmd_delete "$@"
-            ;;
-        list)
-            cmd_list "$@"
-            ;;
-        start|up)
-            cmd_start "$@"
-            ;;
-        stop|down)
-            cmd_stop "$@"
-            ;;
-        status|st)
-            cmd_status "$@"
-            ;;
-        health|hc)
-            cmd_health "$@"
-            ;;
-        attach|a)
-            cmd_attach "$@"
-            ;;
-        run)
-            cmd_run "$@"
-            ;;
-        exec)
-            cmd_exec "$@"
-            ;;
-        init)
-            cmd_init "$@"
-            ;;
-        config)
-            cmd_config "$@"
-            ;;
-        ports)
-            cmd_ports "$@"
-            ;;
-        send|s)
-            cmd_send "$@"
-            ;;
-        logs|log)
-            cmd_logs "$@"
-            ;;
-        panes)
-            cmd_panes "$@"
-            ;;
-        doctor|doc)
-            cmd_doctor "$@"
-            ;;
-        db)
-            cmd_db "$@"
-            ;;
-        *)
-            printf "wt: unknown command '%s' \xe2\x80\x94 see 'wt --help'\n" "$command" >&2
-            exit 2
-            ;;
-    esac
+    if [[ ${#prefix_args[@]} -gt 0 ]]; then
+        "$handler" "${prefix_args[@]}" "$@"
+    else
+        "$handler" "$@"
+    fi
 }
 
 # Run main only when this file is executed, not when it is sourced — the

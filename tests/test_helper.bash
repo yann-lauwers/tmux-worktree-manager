@@ -56,3 +56,24 @@ stub_gh() {
     chmod +x "$TEST_TMPDIR/bin/gh"
     PATH="$TEST_TMPDIR/bin:$PATH"
 }
+
+# Build a PATH directory holding symlinks to every dependency wt.sh checks
+# for (git, yq, tmux, jq, gh) plus the coreutils its startup and library
+# sourcing need, but never fzf — so a test can pin behaviour that must hold
+# on a machine without it, like CI's ubuntu runners, regardless of whether
+# this machine happens to have it installed.
+# Args: $1 shim directory (created if absent)
+# Side: writes symlinks into $1
+build_no_fzf_shim() {
+    local shim="$1"
+    mkdir -p "$shim"
+    local u
+    for u in bash sh git yq tmux jq gh cat dirname readlink basename sed awk \
+        grep printf mkdir true rm mv cp ls mktemp date tr cut head tail sort \
+        uniq wc find xargs env id whoami hostname sleep kill ps df du chmod \
+        touch ln; do
+        local p
+        p=$(command -v "$u" 2>/dev/null) || continue
+        ln -sf "$p" "$shim/$u" 2>/dev/null
+    done
+}

@@ -889,22 +889,31 @@ hooks:
 
 # ===== C8: already-shipped usage errors keep their wording end to end =====
 
-@test "wt bogus: unknown command, exit 2, empty stdout, one stderr line (C8)" {
-    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" bogus
+@test "wt bogus: unknown command, exit 2, empty stdout, one stderr line, nothing written to disk, holds with fzf absent from PATH (C8)" {
+    local shim home_dir
+    shim="$(mktemp -d)"
+    home_dir="$(mktemp -d)"
+    build_no_fzf_shim "$shim"
+
+    run --separate-stderr env -i HOME="$home_dir" PATH="$shim" \
+        WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
+        "$WT_SCRIPT_DIR/wt.sh" bogus
     [[ "$status" -eq 2 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt: unknown command 'bogus' — see 'wt --help'" ]]
+    [[ ! -e "$home_dir/config" ]]
+    [[ ! -e "$home_dir/data" ]]
 }
 
 @test "wt db bogus: unknown subcommand, exit 2, empty stdout, stderr names 'wt db --help' (C8)" {
-    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
+    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
     [[ "$status" -eq 2 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
 }
 
 @test "bare wt db: missing subcommand, exit 2, empty stdout, usage line on stderr (C8)" {
-    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
+    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
     [[ "$status" -eq 2 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]" ]]
