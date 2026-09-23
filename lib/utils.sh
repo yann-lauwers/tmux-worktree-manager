@@ -15,6 +15,12 @@ _WT_ESC_BOLD='\033[1m'
 _WT_ESC_DIM='\033[2m'
 _WT_ESC_NC='\033[0m' # No Color
 
+# OSC 8 hyperlink open/close, as real ESC bytes (not \033 text) — consumed
+# through %s to build a link_start/link_end pair, unlike the %b-driven colors
+# above.
+_WT_OSC8_OPEN=$'\e]8;;'
+_WT_OSC8_ST=$'\e\\'
+
 # Decide whether one stream gets colour. WT_COLOR=always wins outright —
 # including over a piped stream. Failing that, a non-empty NO_COLOR (an empty
 # NO_COLOR= counts as unset, per no-color.org) turns colour off regardless of
