@@ -366,7 +366,7 @@ hooks:
         cmd_delete -f -p testproj "feature/nonexistent"
     '
     [[ "$status" -ne 0 ]]
-    [[ "$output" == *"not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
 }
 
 @test "delete: cleans up orphaned slot when directory missing" {
@@ -650,7 +650,7 @@ hooks:
     load_project_config "testproj"
     run cmd_health -p "testproj" "feature/never-created"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"Worktree not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
 }
 
 # ===== ports: unmanaged-branch regression =====
@@ -662,7 +662,7 @@ hooks:
     load_project_config "testproj"
     run cmd_ports -p "testproj" "feature/never-created"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"Worktree not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
 }
 
 # ===== create/open/db: canonical naming and usage-error contract =====

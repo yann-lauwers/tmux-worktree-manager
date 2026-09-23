@@ -374,7 +374,7 @@ remove_worktree() {
     fi
 
     if [[ ! -d "$wt_path" ]]; then
-        log_warn "Worktree not found: $wt_path"
+        log_warn "No worktree directory at $wt_path"
         return 1
     fi
 
@@ -458,7 +458,7 @@ exec_in_worktree() {
     fi
 
     if [[ ! -d "$wt_path" ]]; then
-        log_error "Worktree not found for branch: $branch"
+        log_error "No directory found at $wt_path for branch '$branch'"
         return 1
     fi
 

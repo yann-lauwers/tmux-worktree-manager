@@ -129,7 +129,7 @@ cmd_ports() {
         # same way `wt status` does, and keep the projected-ports preview for a
         # worktree that exists but has not claimed a slot yet.
         if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-            die "Worktree not found for branch: $branch"
+            die_no_worktree "ports" "$branch" "$project"
         fi
         log_info "Worktree not created yet, showing projected ports..."
         slot=0
@@ -328,8 +328,7 @@ cmd_ports_set() {
     local worktree_path
     worktree_path=$(get_worktree_path "$project" "$branch")
     if [[ -z "$worktree_path" ]]; then
-        log_error "Worktree not found for branch: $branch"
-        return 1
+        die_no_worktree "ports set" "$branch" "$project"
     fi
 
     # Warn if port is currently in use

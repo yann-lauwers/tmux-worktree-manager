@@ -128,6 +128,9 @@ Environment:
   WT_DATA_DIR        State, logs and generated data (default: ~/.local/share/wt)
   WT_DEBUG           Set to 1 to print [DEBUG] lines (default: unset)
   WT_WARN_DEPS       Set to false to silence optional-dependency warnings (default: true)
+  WT_COLOR           Set to 'always' to force colour and hyperlinks even when piped, overriding
+                    NO_COLOR (default: unset)
+  NO_COLOR           Set (non-empty) to disable colour and hyperlinks even on a terminal (default: unset)
   WT_TMUX_SESSION    tmux session name (default: the current tmux session, else "wt")
   WT_LINEAR_API_KEY  Linear API token for 'wt create <TICKET-ID>' (default: read from pass)
 
@@ -165,7 +168,7 @@ check_dependencies() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required dependencies:"
         for dep in "${missing[@]}"; do
-            echo "  - $dep"
+            echo "  - $dep" >&2
         done
         exit 1
     fi
@@ -185,9 +188,9 @@ check_dependencies() {
     if [[ ${#optional_missing[@]} -gt 0 && "${WT_WARN_DEPS:-true}" != "false" ]]; then
         log_warn "Optional dependencies missing (some smart commands may not work):"
         for dep in "${optional_missing[@]}"; do
-            echo "  - $dep"
+            echo "  - $dep" >&2
         done
-        echo ""
+        echo "" >&2
     fi
 }
 
