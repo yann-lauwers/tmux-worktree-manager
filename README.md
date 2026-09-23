@@ -260,8 +260,20 @@ was invoked from:
 - a bare commit hash (e.g. `a1b2c3d`) — no release tag is reachable, such as a shallow clone.
 - the `VERSION` constant in `wt.sh` — the install checkout is not a git repository at all.
 
-Bump rule (semver): **MAJOR** for a removed or renamed command or flag, **MINOR** for a new
-command or flag, **PATCH** for a fix.
+Versions follow [Semantic Versioning](https://semver.org/). wt's public interface is everything
+a script or an older install can depend on: its commands, flags and environment variables, its
+exit codes, the keys of its `--json` output, and the state files it writes under
+`$WT_DATA_DIR` (default `~/.local/share/wt`). Its human-readable output is not part of it. A
+release moves:
+
+- **MAJOR** when it removes or renames a command, flag or env var, changes what an exit code
+  means, removes or renames a `--json` key or changes its type, or writes a stored format an
+  older build cannot read.
+- **MINOR** when it adds a command, flag, env var or `--json` key.
+- **PATCH** for any other change — a fix, reworded output, docs.
+
+The highest level any change in the release reaches decides it: a release that adds one flag and
+renames another is MAJOR.
 
 Release steps:
 
