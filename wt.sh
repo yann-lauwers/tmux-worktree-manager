@@ -246,7 +246,10 @@ _wt_help_requested() {
 # its usage line and touches no dependency check or disk write; the resolved
 # handler then runs after those two, unless the word is a help request.
 # Args: $@ wt's own argv
-# Side: check_dependencies, init_config_dirs (unless help was requested);
+# Side: sets WT_CMD_NAME to the resolved command's canonical word (never the
+#   alias typed) — the handler's suffix, or the word itself for ls/rm/prune —
+#   so every die/log_error from here on reads "wt <that word>: ";
+#   check_dependencies, init_config_dirs (unless help was requested);
 #   die_usage / exit 2 on a bad command or bad 'help' invocation; runs the
 #   resolved handler
 main() {
@@ -291,6 +294,7 @@ main() {
     # — the same separation `WT_CMD_NAME="rm" cmd_delete "$@"` gave rm.
     local handler=""
     local -a prefix_args=()
+    WT_CMD_NAME=""
     case "$command" in
         create|c)
             handler=cmd_create
@@ -299,6 +303,7 @@ main() {
             handler=cmd_open
             ;;
         ls)
+            WT_CMD_NAME="ls"
             handler=cmd_smartlist
             ;;
         rm)
@@ -374,6 +379,10 @@ main() {
             exit 2
             ;;
     esac
+    # The canonical command word every die/log_error line names: the handler's
+    # own suffix, so an alias (st, c, doc) reads as the command it stands for.
+    # Only arms whose handler is shared or differently named set it above.
+    WT_CMD_NAME="${WT_CMD_NAME:-${handler#cmd_}}"
 
     # A command or subcommand's own --help/-h skips dependency checks and
     # directory creation — reading help must never require yq or tmux to be
