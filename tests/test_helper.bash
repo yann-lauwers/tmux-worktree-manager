@@ -5,7 +5,12 @@
 WT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export WT_SCRIPT_DIR
 
-# Create temporary directories for test isolation
+# Create temporary directories for test isolation, and put the test process
+# in a non-git directory: bats itself runs from this repo's own worktree
+# checkout, so a test that never `cd`s away from it would auto-detect a real
+# branch from anything reading cwd (detect_worktree_branch and friends),
+# changing behaviour a fixture never asked for. cd runs last so every path
+# captured above it (WT_CONFIG_DIR and friends) stays absolute.
 setup_test_dirs() {
     TEST_TMPDIR="$(mktemp -d)"
     export WT_CONFIG_DIR="$TEST_TMPDIR/config"
@@ -15,6 +20,7 @@ setup_test_dirs() {
     export WT_LOG_DIR="$WT_DATA_DIR/logs"
 
     mkdir -p "$WT_CONFIG_DIR" "$WT_PROJECTS_DIR" "$WT_DATA_DIR" "$WT_STATE_DIR" "$WT_LOG_DIR"
+    cd "$TEST_TMPDIR"
 }
 
 # Remove temporary directories
@@ -39,4 +45,39 @@ create_yaml_fixture() {
 
     mkdir -p "$(dirname "$path")"
     printf '%s\n' "$content" > "$path"
+}
+
+# Put a stub gh first on PATH, so a command under test never reaches the network.
+# Args: $1 the stub's body — the shell run in place of gh (e.g. "exit 1", or an echo of its JSON)
+# Side: writes $TEST_TMPDIR/bin/gh, prepends $TEST_TMPDIR/bin to PATH
+stub_gh() {
+    mkdir -p "$TEST_TMPDIR/bin"
+    printf '#!/bin/bash\n%s\n' "$1" > "$TEST_TMPDIR/bin/gh"
+    chmod +x "$TEST_TMPDIR/bin/gh"
+    PATH="$TEST_TMPDIR/bin:$PATH"
+}
+
+# Build a PATH directory holding symlinks to every tool wt.sh reaches for
+# (git, yq, tmux, fzf, jq, gh) plus the coreutils its startup and library
+# sourcing need, minus the named tools — so a test can pin behaviour that must
+# hold on a machine without them, like CI's ubuntu runners, whatever this
+# machine happens to have installed. A tool the machine lacks is simply absent.
+# Args: $1 shim directory (created if absent), $@ (from $2) tools to leave out
+# Side: writes symlinks into $1
+build_shim_without() {
+    local shim="$1"
+    shift
+    mkdir -p "$shim"
+    local u omit
+    for u in bash sh git yq tmux fzf jq gh cat dirname readlink basename sed awk \
+        grep printf mkdir true rm mv cp ls mktemp date tr cut head tail sort \
+        uniq wc find xargs env id whoami hostname sleep kill ps df du chmod \
+        touch ln; do
+        for omit in "$@"; do
+            [[ "$u" == "$omit" ]] && continue 2
+        done
+        local p
+        p=$(command -v "$u" 2>/dev/null) || continue
+        ln -sf "$p" "$shim/$u" 2>/dev/null
+    done
 }

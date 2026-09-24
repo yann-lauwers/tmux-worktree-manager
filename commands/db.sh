@@ -1,12 +1,14 @@
 #!/bin/bash
 # commands/db.sh - Database management for worktrees
 
+# Dispatch to a db subcommand (reset/url/dump/use-remote|detach).
+# Args: $1 subcommand, $2... subcommand's own args
+# Side: dies (exit 2) on a missing or unknown subcommand
 cmd_db() {
     local subcommand="${1:-}"
 
     if [[ -z "$subcommand" ]]; then
-        show_db_help
-        return 1
+        die_usage "db" "missing subcommand" "wt db <reset|url|dump|use-remote> [options]"
     fi
     shift
 
@@ -27,24 +29,31 @@ cmd_db() {
             show_db_help
             return 0
             ;;
+        -*)
+            die_unknown_option "db" "$subcommand"
+            ;;
         *)
-            log_error "Unknown db subcommand: $subcommand"
-            show_db_help
-            return 1
+            die_usage "db" "unknown subcommand '$subcommand'"
             ;;
     esac
 }
 
+# Stop, wipe and recreate the ephemeral Postgres for a worktree, then apply migrations or a seed dump.
+# Args: none (reads -p/--project, -y/--yes, --seed, --fresh, [branch] from argv)
+# Side: destroys and recreates the worktree's PG data dir, rewrites its env files; prompts for
+#       confirmation unless -y (declined: returns 2, nothing wiped); dies (exit 2, nothing wiped)
+#       when stdin is not a terminal and -y was not given
 cmd_db_reset() {
     local branch=""
     local project=""
     local fresh_dump=0
     local seed=0
+    local yes=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "db reset" "$1" "${2:-}" "wt db reset [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -56,14 +65,16 @@ cmd_db_reset() {
                 seed=1
                 shift
                 ;;
+            -y|--yes)
+                yes=1
+                shift
+                ;;
             -h|--help)
                 show_db_reset_help
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_db_reset_help
-                return 1
+                die_unknown_option "db reset" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -78,8 +89,7 @@ cmd_db_reset() {
     if [[ -z "$branch" ]]; then
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (could not auto-detect)"
-            return 1
+            die_usage "db reset" "branch name is required and could not be detected" "wt db reset [branch] [options]"
         fi
     fi
 
@@ -110,7 +120,9 @@ cmd_db_reset() {
     local backend_port
     backend_port=$(get_service_port "backend" "$branch" "$PROJECT_CONFIG_FILE" "$slot" "$project")
     local pg_port=$((backend_port + 51300))
-    local db_url="postgresql://$(whoami)@localhost:${pg_port}/postgres"
+    local db_url
+    # today's local-assign masked a failing whoami (status 0 from local); keep that behaviour under the split form
+    db_url="postgresql://$(whoami)@localhost:${pg_port}/postgres" || true
 
     echo ""
     log_info "Resetting database for ${CYAN}${branch}${NC}"
@@ -118,6 +130,16 @@ cmd_db_reset() {
     print_kv "PG port" "$pg_port"
     print_kv "DB URL" "$db_url"
     echo ""
+
+    if [[ $yes -ne 1 ]]; then
+        if ! stdin_is_tty; then
+            die_usage "db reset" "stdin is not a terminal and --yes was not given, so nothing was wiped" "wt db reset [branch] --yes"
+        fi
+        if ! confirm "Wipe and recreate the database for '${branch}'?"; then
+            log_info "Aborted"
+            return 2
+        fi
+    fi
 
     # Step 1: Stop existing PG
     if [[ -d "$pg_dir" ]]; then
@@ -195,10 +217,12 @@ cmd_db_reset() {
                 log_warn "No DIRECT_URL in main repo — cannot dump the seed source"
             else
                 mkdir -p "$(dirname "$seed_dump")"
-                pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
+                if ! { pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
                     && mv "$seed_dump.tmp" "$seed_dump" \
-                    && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
-                    || { log_warn "pg_dump failed — falling back to migrate deploy"; rm -f "$seed_dump.tmp"; }
+                    && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))"; }; then
+                    log_warn "pg_dump failed — falling back to migrate deploy"
+                    rm -f "$seed_dump.tmp"
+                fi
             fi
         fi
 
@@ -233,6 +257,9 @@ cmd_db_reset() {
     echo ""
 }
 
+# Print the database connection URL for a worktree's slot.
+# Args: none (reads -p/--project and [branch] from argv)
+# Out: the connection URL
 cmd_db_url() {
     local branch=""
     local project=""
@@ -240,12 +267,16 @@ cmd_db_url() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "db url" "$1" "${2:-}" "wt db url [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
+            -h|--help)
+                show_db_url_help
+                return 0
+                ;;
             -*)
-                shift
+                die_unknown_option "db url" "$1"
                 ;;
             *)
                 [[ -z "$branch" ]] && branch="$1"
@@ -256,7 +287,9 @@ cmd_db_url() {
 
     if [[ -z "$branch" ]]; then
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-        [[ -z "$branch" ]] && { log_error "Branch name required"; return 1; }
+        if [[ -z "$branch" ]]; then
+            die_usage "db url" "branch name is required and could not be detected" "wt db url [branch] [options]"
+        fi
     fi
 
     project=$(require_project "$project")
@@ -268,24 +301,50 @@ cmd_db_url() {
     fi
 }
 
+# Print the 'wt db url' help page to stdout.
+show_db_url_help() {
+    cat << 'EOF'
+Prints the database connection URL for a worktree's slot to stdout, and nothing else on success.
+
+Usage: wt db url [branch] [options]
+
+Arguments:
+  [branch]          Full branch name (default: the current git branch)
+
+Options:
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
+
+Examples:
+  wt db url
+  wt db url feature/auth
+
+Exit codes:
+  0  URL printed
+  1  no db.url_template in the project config
+  2  usage error: unknown option, missing option argument, or missing branch
+EOF
+}
+
+# Refresh the cached seed-source dump from the main repo's DIRECT_URL.
+# Args: none (reads -p/--project from argv)
+# Side: writes ~/.local/share/nexus/seed.dump
 cmd_db_dump() {
     local project=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "db dump" "$1" "${2:-}" "wt db dump [options]"
                 project="$2"
                 shift 2
                 ;;
             -h|--help)
-                echo "Usage: wt db dump [-p project]"
-                echo ""
-                echo "Refresh the cached seed-source dump from the main repo's DIRECT_URL."
-                echo "Reads connection string from the root worktree (not the current one)."
-                echo ""
-                echo "Cache: ~/.local/share/nexus/seed.dump"
+                show_db_dump_help
                 return 0
+                ;;
+            -*)
+                die_unknown_option "db dump" "$1"
                 ;;
             *)
                 shift
@@ -340,38 +399,79 @@ cmd_db_dump() {
     print_kv "Target" "$seed_dump"
     echo ""
 
-    pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
+    if ! { pg_dump --format=custom --no-owner --no-acl "$seed_source_url" > "$seed_dump.tmp" \
         && mv "$seed_dump.tmp" "$seed_dump" \
-        && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))" \
-        || { log_error "pg_dump failed"; rm -f "$seed_dump.tmp"; return 1; }
+        && log_success "Seed-source DB dumped ($(du -h "$seed_dump" | cut -f1))"; }; then
+        log_error "pg_dump failed"
+        rm -f "$seed_dump.tmp"
+        return 1
+    fi
 }
 
-show_db_help() {
+# Print the 'wt db dump' help page to stdout.
+show_db_dump_help() {
     cat << 'EOF'
-Usage: wt db <subcommand> [options]
+Refreshes the cached seed-source dump from the main repo's DIRECT_URL, reading the connection string
+from the root checkout, never the current worktree.
 
-Database management for worktrees.
-
-Subcommands:
-  reset [branch]     Stop, wipe, and recreate the ephemeral Postgres
-  use-remote [branch] Stop the ephemeral and point env refs at main repo's remote DB
-  dump               Refresh the cached seed-source dump from main repo
-  url [branch]       Print the database connection URL
+Usage: wt db dump [options]
 
 Options:
-  -h, --help         Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
+
+Examples:
+  wt db dump
+  wt db dump --project myproject
+
+Cache: ~/.local/share/nexus/seed.dump
+
+Exit codes:
+  0  dump refreshed
+  1  pg_dump not found, main repo not found, no DIRECT_URL in its env file, or pg_dump failed
+  2  usage error: unknown option or missing option argument
+EOF
+}
+
+# Print the 'wt db' help page to stdout.
+show_db_help() {
+    cat << 'EOF'
+Manages the ephemeral Postgres instance for a worktree: reset it, point it at the main repo's remote
+DB instead, refresh the cached seed dump, or print its connection URL.
+
+Usage: wt db <subcommand> [options]
+
+Subcommands:
+  reset [branch]       Stop, wipe, and recreate the ephemeral Postgres (see 'wt db reset --help')
+  use-remote [branch]  Stop the ephemeral and point env refs at the main repo's remote DB — alias:
+                       detach (see 'wt db use-remote --help')
+  dump                 Refresh the cached seed-source dump from the main repo (see 'wt db dump
+                       --help')
+  url [branch]         Print the database connection URL (see 'wt db url --help')
+
+Options:
+  -h, --help         Show this page
 
 Examples:
   wt db reset                    # Fresh DB + replay all migrations
+  wt db reset -y                 # Same, skip confirmation
   wt db reset --seed             # Restore from cached seed-source dump instead
   wt db reset --seed --fresh     # Re-dump the seed source first, then restore
   wt db use-remote               # Kill ephemeral + point env at remote DB
   wt db use-remote -y            # Same, skip confirmation
   wt db dump                     # Refresh seed-source dump cache
   wt db url                      # Print DB URL for current worktree
+
+Exit codes:
+  0  subcommand ran and reported success
+  1  operational failure in the chosen subcommand
+  2  usage error: missing subcommand or unknown subcommand/option
 EOF
 }
 
+# Stop a worktree's ephemeral Postgres and point its env files at the main repo's remote DB.
+# Args: none (reads -p/--project, -y/--yes, [branch] from argv)
+# Side: removes the worktree's PG data dir, rewrites its env files; prompts for confirmation unless -y
 cmd_db_use_remote() {
     local branch=""
     local project=""
@@ -380,7 +480,7 @@ cmd_db_use_remote() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "db use-remote" "$1" "${2:-}" "wt db use-remote [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -393,9 +493,7 @@ cmd_db_use_remote() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_db_use_remote_help
-                return 1
+                die_unknown_option "db use-remote" "$1"
                 ;;
             *)
                 [[ -z "$branch" ]] && branch="$1"
@@ -407,8 +505,7 @@ cmd_db_use_remote() {
     if [[ -z "$branch" ]]; then
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required (could not auto-detect)"
-            return 1
+            die_usage "db use-remote" "branch name is required and could not be detected" "wt db use-remote [branch] [options]"
         fi
     fi
 
@@ -426,8 +523,7 @@ cmd_db_use_remote() {
     local worktree_path
     worktree_path=$(get_worktree_path "$project" "$branch")
     if [[ -z "$worktree_path" ]] || [[ ! -d "$worktree_path" ]]; then
-        log_error "Worktree path not found for branch: $branch"
-        return 1
+        die_no_worktree "db use-remote" "$branch" "$project"
     fi
 
     local repo_path
@@ -524,20 +620,24 @@ cmd_db_use_remote() {
     echo ""
 }
 
+# Print the 'wt db use-remote' help page to stdout.
 show_db_use_remote_help() {
     cat << 'EOF'
+Stops the ephemeral Postgres for a worktree and rewrites its env files so DATABASE_URL / DIRECT_URL
+point at the main repo's remote DB.
+
+Prompts "Proceed? [y/N]" before touching anything, unless -y is given; declining prints "Aborted."
+and exits 0, the same as running nothing.
+
 Usage: wt db use-remote [branch] [options]
 
-Stop the ephemeral Postgres for a worktree and rewrite its env files so
-DATABASE_URL / DIRECT_URL point at the main repo's remote DB.
-
 Arguments:
-  [branch]           Branch name (defaults to current branch)
+  [branch]           Full branch name (default: the current git branch)
 
 Options:
-  -y, --yes          Skip the confirmation prompt
-  -p, --project      Project name (auto-detected if not specified)
-  -h, --help         Show this help message
+  -y, --yes            Skip the confirmation prompt (default: off — prompts)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt db use-remote                      # Prompt, then detach current worktree
@@ -545,29 +645,50 @@ Examples:
   wt db use-remote yann-lauwers/nex-123 # Detach a specific worktree
 
 Aliases: wt db detach
+
+Exit codes:
+  0  detached, or the confirmation was declined
+  1  worktree or main repo not found, or the main repo's env file is missing DATABASE_URL/DIRECT_URL
+  2  usage error: unknown option, missing option argument, or missing branch
 EOF
 }
 
+# Print the 'wt db reset' help page to stdout.
 show_db_reset_help() {
     cat << 'EOF'
+Stops, wipes, and recreates the ephemeral Postgres for a worktree, rewires its env files at
+DATABASE_URL/DIRECT_URL, and by default runs prisma migrate deploy for a clean migration state.
+
+Prompts "Wipe and recreate the database for '<branch>'? [y/N]" before stopping or deleting
+anything, unless -y is given; declining exits 2, the same as `wt delete`. Run with stdin not a
+terminal and -y not given, it refuses outright and wipes nothing.
+
 Usage: wt db reset [branch] [options]
 
-Stop, wipe, and recreate the ephemeral Postgres for a worktree.
-By default, runs prisma migrate deploy for a clean migration state.
-
 Arguments:
-  [branch]           Branch name (defaults to current branch)
+  [branch]           Full branch name (default: the current git branch)
 
 Options:
-  --seed             Restore from cached seed-source dump instead of migrating
-  --fresh            Re-dump the seed source before restoring (requires --seed)
-  -p, --project      Project name (auto-detected if not specified)
-  -h, --help         Show this help message
+  -y, --yes            Skip the confirmation prompt (default: off — prompts)
+  --seed              Restore from the cached seed-source dump instead of migrating (default: off
+                      — migrates)
+  --fresh              Re-dump the seed source before restoring; requires --seed (default: off —
+                       uses the cached dump)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt db reset                           # Fresh DB + replay all migrations
+  wt db reset -y                        # Same, skip confirmation
   wt db reset --seed                    # Restore from cached seed-source dump
   wt db reset --seed --fresh            # Re-dump the seed source first, then restore
   wt db reset yann-lauwers/nex-1663     # Reset for specific branch
+
+Exit codes:
+  0  database reset
+  1  PostgreSQL not found, no slot for the branch, Postgres failed to start, or no DIRECT_URL to
+     dump from
+  2  usage error: unknown option, missing option argument, or missing branch; or the confirmation
+     was declined, or stdin is not a terminal and --yes was not given
 EOF
 }

@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/init.sh - Initialize project configuration
 
+# Write a new project config for the current git repository.
+# Args: flags only
+# Side: writes the project config file, updates .gitignore for the default layout, dies (exit 1) on a git-repo or naming failure
 cmd_init() {
     local project_name=""
     local force=0
@@ -8,8 +11,11 @@ cmd_init() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -n|--name)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+            -n)
+                die_unknown_option "init" "$1" "use --name"
+                ;;
+            --name)
+                require_optarg "init" "$1" "${2:-}" "wt init [options]"
                 project_name="$2"
                 shift 2
                 ;;
@@ -22,9 +28,7 @@ cmd_init() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_init_help
-                return 1
+                die_unknown_option "init" "$1"
                 ;;
             *)
                 shift
@@ -171,20 +175,29 @@ EOF
     echo "     wt create <branch-name>"
 }
 
+# Print the 'wt init' help page to stdout.
 show_init_help() {
     cat << 'EOF'
+Writes a new project config under the wt config directory for the current git repository, and prints
+the path it wrote plus a next-steps hint.
+Adds .worktrees/ to the repo's .gitignore when using the default in-repo worktree layout.
+
 Usage: wt init [options]
 
-Initialize wt configuration for the current git repository.
-
 Options:
-  -n, --name        Project name (default: directory name)
-  -f, --force       Overwrite existing configuration
-  -h, --help        Show this help message
+  --name <name>       Project name (default: the repo directory's name, sanitized)
+  -f, --force          Overwrite an existing configuration (default: off — refuses if one exists)
+  -h, --help            Show this page
 
 Examples:
   wt init
   wt init --name my-project
   wt init --force
+
+Exit codes:
+  0  configuration written
+  1  not in a git repository, config already exists (without --force), or the derived project name
+     is invalid
+  2  usage error: unknown option or missing option argument
 EOF
 }

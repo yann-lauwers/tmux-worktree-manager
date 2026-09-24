@@ -102,6 +102,13 @@ calculate_worktree_ports() {
     done <<< "$dynamic_services"
 }
 
+# Name the environment variable that carries a service's port.
+# Args: $1 service name
+# Out: PORT_<SERVICE> (uppercased, dashes to underscores)
+port_env_var_name() {
+    echo "PORT_$(echo "$1" | tr '[:lower:]-' '[:upper:]_')"
+}
+
 # Export port environment variables for all services
 # If project is provided, port overrides are applied
 # Optional 5th param: pre-computed port map (SERVICE:PORT lines) to avoid recalculation
@@ -135,9 +142,8 @@ export_port_vars() {
             fi
         fi
 
-        # Export PORT_<SERVICE_NAME> (uppercase, dashes to underscores)
         local var_name
-        var_name="PORT_$(echo "$svc_name" | tr '[:lower:]-' '[:upper:]_')"
+        var_name=$(port_env_var_name "$svc_name")
         export "$var_name=$effective_port"
         log_debug "Exported port: $var_name=$effective_port"
     done <<< "$port_data"
@@ -172,11 +178,13 @@ slots_file() {
 }
 
 # Initialize slots file if needed
+# Side: creates WT_STATE_DIR when missing
 init_slots_file() {
     local file
     file=$(slots_file)
 
     if [[ ! -f "$file" ]]; then
+        ensure_dir "$WT_STATE_DIR"
         cat > "$file" << 'EOF'
 # Slot assignments for reserved ports
 # Each slot maps to a set of ports for Privy-dependent services

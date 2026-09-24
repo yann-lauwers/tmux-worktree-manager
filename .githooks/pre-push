@@ -1,0 +1,36 @@
+#!/bin/bash
+# .githooks/pre-push - Refuses the push when scripts/shellcheck.sh or the
+# bats suite fails, stopping at the first failure and naming which one
+# refused. Enabled per contributor with `git config core.hooksPath .githooks`
+# (see CONTRIBUTING.md § Pull Requests).
+
+set -euo pipefail
+
+# git invokes a pre-push hook with the push's ref updates on stdin, one line
+# per ref, and never reads it itself here — drain it so git's own write
+# doesn't block on an unread pipe.
+# Side: consumes stdin
+drain_stdin() {
+    cat >/dev/null || true
+}
+
+# Run scripts/shellcheck.sh, then bats tests/, stopping at the first failure.
+# Side: exits 1 on either gate's failure, naming which one
+main() {
+    local repo_root
+    repo_root="$(git rev-parse --show-toplevel)"
+
+    drain_stdin
+
+    if ! "$repo_root/scripts/shellcheck.sh"; then
+        echo "pre-push: refused by scripts/shellcheck.sh — its message is above" >&2
+        exit 1
+    fi
+
+    if ! (cd "$repo_root" && bats tests/); then
+        echo "pre-push: refused by bats tests/ — its output is above" >&2
+        exit 1
+    fi
+}
+
+main "$@"

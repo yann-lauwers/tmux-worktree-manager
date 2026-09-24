@@ -1,16 +1,25 @@
 #!/bin/bash
 # commands/exec.sh - Execute a command in worktree context
 
+# Run a command inside a worktree's directory, with its port and env vars exported.
+# Args: $1 branch, $2... command and its own arguments (unparsed by wt, dashes included)
+# Side: exports WORKTREE_PATH/BRANCH_NAME/PORT_*, runs the command in $wt_path, dies (exit 1) if the worktree is missing
 cmd_exec() {
     local branch=""
     local project=""
     local cmd_args=()
 
-    # Parse arguments
+    # Parse arguments. Once the branch positional is set, option parsing stops
+    # dead — every remaining word, dashes included, is the command to run, so
+    # `wt exec <branch> git --help` passes --help to git rather than to wt.
     while [[ $# -gt 0 ]]; do
+        if [[ -n "$branch" ]]; then
+            cmd_args+=("$@")
+            break
+        fi
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "exec" "$1" "${2:-}" "wt exec <branch> <command...>"
                 project="$2"
                 shift 2
                 ;;
@@ -18,42 +27,22 @@ cmd_exec() {
                 show_exec_help
                 return 0
                 ;;
-            --)
-                shift
-                cmd_args+=("$@")
-                break
-                ;;
             -*)
-                if [[ -z "$branch" ]]; then
-                    log_error "Unknown option: $1"
-                    show_exec_help
-                    return 1
-                fi
-                # After branch, all args are part of the command
-                cmd_args+=("$1")
-                shift
+                die_unknown_option "exec" "$1"
                 ;;
             *)
-                if [[ -z "$branch" ]]; then
-                    branch="$1"
-                else
-                    cmd_args+=("$1")
-                fi
+                branch="$1"
                 shift
                 ;;
         esac
     done
 
     if [[ -z "$branch" ]]; then
-        log_error "Branch name is required"
-        show_exec_help
-        return 1
+        die_usage "exec" "branch name is required" "wt exec <branch> <command...>"
     fi
 
     if [[ ${#cmd_args[@]} -eq 0 ]]; then
-        log_error "Command is required"
-        show_exec_help
-        return 1
+        die_usage "exec" "command is required" "wt exec <branch> <command...>"
     fi
 
     project=$(require_project "$project")
@@ -61,7 +50,7 @@ cmd_exec() {
 
     # Verify worktree exists
     if ! worktree_exists "$branch" "$PROJECT_REPO_PATH"; then
-        die "Worktree not found for branch: $branch"
+        die_no_worktree "exec" "$branch" "$project"
     fi
 
     local wt_path
@@ -84,26 +73,31 @@ cmd_exec() {
 
 show_exec_help() {
     cat << 'EOF'
+Runs a command inside a worktree, with its working directory, PORT variables and the project's env
+vars set first, and prints whatever that command writes to stdout and stderr.
+Everything typed after <branch> is passed to the command as-is, flags included: `wt exec <branch>
+git --help` runs `git --help`, not wt's own help. Only a -h/--help or unknown option written before
+<branch> is read by wt.
+
 Usage: wt exec <branch> <command...>
 
-Execute a command in the context of a worktree.
-
-The command runs with:
-- Working directory set to the worktree path
-- PORT variables exported
-- Project environment variables set
-
 Arguments:
-  <branch>          Branch name of the worktree
-  <command...>      Command and arguments to execute
+  <branch>          Full branch name of the worktree
+  <command...>      Command and arguments to execute, unparsed by wt
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt exec feature/auth npm test
   wt exec feature/auth git status
-  wt exec feature/auth -- npm run build
+  wt exec feature/auth git --help
+
+Exit codes:
+  0  the command exited 0
+  1  worktree not found for the branch; otherwise wt exits with the executed command's own status
+  2  usage error: unknown option before <branch>, missing option argument, missing branch, or
+     missing command
 EOF
 }

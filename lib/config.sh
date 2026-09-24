@@ -216,11 +216,13 @@ load_project_config() {
     PROJECT_NAME=$(yaml_get "$config_file" ".name" "$project")
     PROJECT_REPO_PATH=$(yaml_get "$config_file" ".repo_path")
     PROJECT_REPO_PATH=$(expand_path "$PROJECT_REPO_PATH")
+    # shellcheck disable=SC2034 # read by every command/*.sh caller and by tests, not by this function
     PROJECT_CONFIG_FILE="$config_file"
 
     # Port configuration
     PROJECT_RESERVED_PORT_MIN=$(yaml_get "$config_file" ".ports.reserved.range.min" "3000")
     PROJECT_RESERVED_PORT_MAX=$(yaml_get "$config_file" ".ports.reserved.range.max" "3005")
+    # shellcheck disable=SC2034 # read by commands/create.sh and tests, not by this function
     PROJECT_RESERVED_SLOTS=$(yaml_get "$config_file" ".ports.reserved.slots" "3")
     PROJECT_DYNAMIC_PORT_MIN=$(yaml_get "$config_file" ".ports.dynamic.range.min" "4000")
     PROJECT_DYNAMIC_PORT_MAX=$(yaml_get "$config_file" ".ports.dynamic.range.max" "5000")
@@ -382,6 +384,23 @@ resolve_db_url() {
 # URLs with no password (postgresql://user@host) are returned unchanged.
 redact_db_url() {
     echo "$1" | sed -E 's|(://[^:/@]+):[^@]*@|\1:****@|'
+}
+
+# Split a resolved DB URL (postgresql://user[:pass]@host:port/name) into its
+# display components. Shared by `wt status` and `wt ports`, human and --json
+# alike, so the parse stays one place.
+# Args: $1 db url
+# Out: host, port, user, name as one line of \x1f-separated fields (a component
+#      sed finds nothing for comes back empty, never the raw URL)
+parse_db_url_components() {
+    local db_url="$1"
+    local db_user db_host db_port db_name
+    db_user=$(echo "$db_url" | sed -n 's|.*://\([^@]*\)@.*|\1|p')
+    db_user="${db_user%%:*}"
+    db_host=$(echo "$db_url" | sed -n 's|.*@\([^:]*\):.*|\1|p')
+    db_port=$(echo "$db_url" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+    db_name=$(echo "$db_url" | sed -n 's|.*/\([^?]*\).*|\1|p')
+    printf '%s\x1f%s\x1f%s\x1f%s\n' "$db_host" "$db_port" "$db_user" "$db_name"
 }
 
 # List all configured projects

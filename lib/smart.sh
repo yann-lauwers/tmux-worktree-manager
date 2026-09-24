@@ -3,7 +3,9 @@
 #
 # Depends on: lib/utils.sh (colors, logging, die)
 
-WT_PROJECTS_DIR="$HOME/.config/wt/projects"
+# Keeps a WT_PROJECTS_DIR already set — lib/config.sh derives it from
+# WT_CONFIG_DIR — and falls back to the default location only when unset.
+WT_PROJECTS_DIR="${WT_PROJECTS_DIR:-$HOME/.config/wt/projects}"
 
 # ─── Project detection ───────────────────────────────────────────────────────
 
@@ -178,10 +180,12 @@ smart_pick_worktree() {
 
     # No fzf or non-interactive
     if [[ ! -t 0 ]]; then
-        echo -e "${BOLD}Worktrees:${NC}" >&2
+        echo -e "${E_BOLD}Worktrees:${E_NC}" >&2
         echo "$display_lines" >&2
         die "Multiple worktrees — pass a name: wt open <branch>"
     fi
+
+    note_optional_missing fzf "the picker falls back to this numbered list"
 
     echo -e "${BOLD}Worktrees:${NC}"
     echo ""
@@ -235,9 +239,11 @@ smart_pr_badge() {
     draft=$(echo "$pr_json" | jq -r '.isDraft')
 
     local url="https://github.com/${repo_nwo}/pull/${number}"
-    local link_start link_end
-    link_start=$(printf '\e]8;;%s\e\\' "$url")
-    link_end=$(printf '\e]8;;\e\\')
+    local link_start='' link_end=''
+    if [[ "${_WT_COLOR_OUT:-0}" == "1" ]]; then
+        link_start="${_WT_OSC8_OPEN}${url}${_WT_OSC8_ST}"
+        link_end="${_WT_OSC8_OPEN}${_WT_OSC8_ST}"
+    fi
 
     if [[ "$state" == "MERGED" ]]; then
         printf '%b%s#%s%s merged%b' "$MAGENTA" "$link_start" "$number" "$link_end" "$NC"
@@ -250,6 +256,21 @@ smart_pr_badge() {
     else
         printf '%b%s#%s%s%b' "$DIM" "$link_start" "$number" "$link_end" "$NC"
     fi
+}
+
+# A worktree's PR as a TSV row, via gh's own --jq rather than a jq pipe — jq is
+# an optional dependency and pr_lookup must not depend on it. No PR for the
+# branch → no output at all, never a row of empty fields.
+# Args: $1 branch, $2 owner/repo
+# Out: "<number>\t<state>\t<draft>\t<url>", or nothing
+smart_pr_json() {
+    local branch="$1"
+    local repo_nwo="$2"
+
+    gh pr list --repo "$repo_nwo" \
+        --head "$branch" --state all --limit 1 \
+        --json number,state,isDraft,url \
+        --jq '(.[0] // empty) | [.number, .state, .isDraft, .url] | @tsv' 2>/dev/null || true
 }
 
 # ─── User identity ──────────────────────────────────────────────────────────

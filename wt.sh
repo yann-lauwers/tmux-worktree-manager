@@ -4,7 +4,11 @@
 
 set -euo pipefail
 
-VERSION="2.0.0"
+# What `wt --version` reports where the install is not a git checkout; a checkout
+# reports its release tag instead (lib/version.sh). The release step,
+# scripts/check-release.sh, keeps this equal to the latest v* tag. Keep the
+# VERSION="x.y.z" form: that script parses this line.
+VERSION="3.0.0"
 
 # Determine script directory (resolve symlinks)
 SOURCE="${BASH_SOURCE[0]}"
@@ -19,6 +23,8 @@ export WT_SCRIPT_DIR
 
 # Source library modules
 source "${WT_SCRIPT_DIR}/lib/utils.sh"
+source "${WT_SCRIPT_DIR}/lib/json.sh"
+source "${WT_SCRIPT_DIR}/lib/version.sh"
 source "${WT_SCRIPT_DIR}/lib/config.sh"
 source "${WT_SCRIPT_DIR}/lib/port.sh"
 source "${WT_SCRIPT_DIR}/lib/state.sh"
@@ -54,115 +60,105 @@ source "${WT_SCRIPT_DIR}/commands/db.sh"
 source "${WT_SCRIPT_DIR}/commands/code.sh"
 source "${WT_SCRIPT_DIR}/commands/pr.sh"
 
-# Show quick usage (wt with no args)
+# Show quick usage (wt with no args) — a short pointer to the full page, not a
+# restatement of it, so the two never drift apart.
+# Side: writes to stdout
 show_usage() {
-    echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
+    cat <<EOF
+wt manages git worktrees across projects — creating and deleting them with tmux
+windows, port slots, an optional ephemeral Postgres, and Cloudflare tunnels.
 
-${BOLD}COMMANDS${NC}
-    ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
-    ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
-    ${CYAN}ls${NC}              List all worktrees across projects (PR status)
-    ${CYAN}rm${NC}              Delete worktrees (fzf multi-select; --merged for merged/closed only)
-    ${CYAN}prune${NC}           Delete merged/closed-PR worktrees (alias for rm --merged)
-    ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
-    ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
-    ${CYAN}start, up${NC}       Start services in a worktree
-    ${CYAN}stop, down${NC}      Stop services in a worktree
-    ${CYAN}status, st${NC}      Show worktree status
-    ${CYAN}health, hc${NC}      Live-probe services (is it actually answering?)
+Usage: wt <command> [arguments] [options]
 
-Run ${CYAN}wt --help${NC} for all commands."
+Common commands: create, open, ls, rm, start, stop, status, attach, db
+
+Run 'wt --help' for the full command list, or 'wt help <command>' (same as
+'wt <command> --help') for one command's own page.
+EOF
 }
 
-# Show full help (wt --help)
+# Show the top-level help page (wt --help / wt -h).
+# Side: writes to stdout
 show_help() {
-    echo -e "${BOLD}wt${NC} - Git Worktree Manager v${VERSION}
+    cat <<EOF
+wt manages git worktrees across projects: it creates and deletes them with tmux
+windows, port slots, an optional ephemeral Postgres, and Cloudflare tunnels wired
+through per-project hooks. It never removes a worktree without confirming first,
+except under -f/--force on a direct delete, or the bulk 'wt rm' and 'wt prune'
+pickers, which force-remove a matching worktree by default.
 
-${BOLD}USAGE${NC}
-    wt <command> [arguments] [options]
+Usage: wt <command> [arguments] [options]
 
-${BOLD}SMART COMMANDS${NC}
-    ${CYAN}create, c${NC}       Create a worktree (Linear-aware, scratch, plain branch)
-    ${CYAN}open, o${NC}         Open worktree in cmux/tmux (fzf picker)
-    ${CYAN}ls${NC}              List all worktrees across projects (PR status)
-    ${CYAN}rm${NC}              Delete worktrees (fzf multi-select; --merged for merged/closed only)
-    ${CYAN}prune${NC}           Delete merged/closed-PR worktrees (alias for rm --merged)
-    ${CYAN}code, cursor${NC}    Open worktree in editor (fzf picker)
-    ${CYAN}pr${NC}              PR management (open, conflicts, resolve)
+Commands:
+  help <command>   Show one command's page (same as wt <command> --help)
+  create, c        Create a worktree (Linear-aware, scratch, or a plain branch)
+  open, o          Open a worktree in cmux/tmux (fzf picker)
+  ls               List worktrees across all projects, with PR status
+  rm               Delete worktrees (fzf multi-select; --merged for merged/closed only)
+  prune            Delete merged/closed-PR worktrees (alias for rm --merged)
+  code, cursor     Open a worktree in the configured editor
+  pr               PR management (open in browser, list conflicts, resolve one)
+  start, up        Start services in a worktree
+  stop, down       Stop services in a worktree
+  status, st       Show worktree status (recorded state)
+  health, hc       Live-probe services and exit 0/1 (actual state)
+  attach, a        Attach to the worktree's tmux session
+  db               Manage a worktree's ephemeral Postgres
+  delete           Delete a single worktree (no picker)
+  list             List worktrees for one project
+  send, s          Send a command to a tmux pane
+  logs, log        Capture pane output
+  panes            List tmux panes for a worktree
+  run              Run one setup step again
+  exec             Execute a command inside a worktree
+  ports            Show or override port assignments
+  doctor, doc      Run diagnostic checks
+  init             Initialize a project's configuration
+  config           View or edit configuration
 
-    Examples:
-        wt create NEX-1500                   # from Linear task
-        wt create fix/my-bug                 # plain branch
-        wt create fix/my-bug --from staging  # override base branch
-        wt create                            # scratch worktree
-        wt open                              # fzf picker
-        wt ls                                # all projects, PR status
-        wt rm                                # fzf multi-select delete
-        wt prune                             # picker over merged/closed only (= rm --merged)
-        wt prune -y                          # auto-delete all merged/closed
-        wt pr                                # open PR in browser
-        wt pr conflicts                      # check merge conflicts
+Examples:
+  wt create NEX-1500                   # create from a Linear task
+  wt open                              # fzf picker over every worktree
+  wt start                             # start services (run inside a worktree)
+  wt rm                                # fzf multi-select delete
 
-${BOLD}CORE COMMANDS${NC}
-    ${CYAN}Worktree Management${NC}
-    delete          Delete a worktree (basic)
-    list            List worktrees (single project)
+Options:
+  -h, --help       Show this page
+  -v, --version    Show the wt version
 
-    ${CYAN}Service Management${NC}
-    start, up       Start services in a worktree
-    stop, down      Stop services in a worktree
-    status, st      Show worktree status (recorded state)
-    health, hc      Live-probe services and exit 0/1 (actual state)
+Environment:
+  WT_CONFIG_DIR      Config directory (default: ~/.config/wt)
+  WT_DATA_DIR        State, logs and generated data (default: ~/.local/share/wt)
+  WT_DEBUG           Set to 1 to print [DEBUG] lines (default: unset)
+  WT_WARN_DEPS       Set to false to silence the notes fzf/jq/gh print when a command
+                    reaches for one that isn't installed (default: true)
+  WT_COLOR           Set to 'always' to force colour and hyperlinks even when piped, overriding
+                    NO_COLOR (default: unset)
+  NO_COLOR           Set (non-empty) to disable colour and hyperlinks even on a terminal (default: unset)
+  WT_TMUX_SESSION    tmux session name (default: the current tmux session, else "wt")
+  WT_LINEAR_API_KEY  Linear API token for 'wt create <TICKET-ID>' (default: read from pass)
 
-    ${CYAN}Session Management${NC}
-    attach, a       Attach to tmux session
+Issues: https://github.com/yann-lauwers/tmux-worktree-manager/issues
 
-    ${CYAN}Tmux Integration${NC}
-    send, s         Send command to a tmux pane
-    logs, log       Capture pane output
-    panes           List panes for a worktree
-
-    ${CYAN}Utilities${NC}
-    run             Run a setup step
-    exec            Execute command in worktree
-    ports           Show port assignments
-    doctor, doc     Run diagnostic checks
-
-    ${CYAN}Configuration${NC}
-    init            Initialize project configuration
-    config          View/edit configuration
-
-    Examples:
-        wt start nex-1500/slug --all    # start all services
-        wt stop nex-1500/slug --all     # stop all services
-        wt attach nex-1500/slug         # attach tmux session
-        wt send nex-1500/slug backend 'pnpm dev'
-        wt ports nex-1500/slug          # show port assignments
-        wt exec nex-1500/slug git status
-        wt doctor                       # run diagnostics
-
-${BOLD}OPTIONS${NC}
-    -p, --project   Specify project name
-    -v, --verbose   Enable verbose output
-    -h, --help      Show help for command
-    --version       Show version
-
-${BOLD}CONFIGURATION${NC}
-    Global config:  ~/.config/wt/config.yaml
-    Project configs: ~/.config/wt/projects/<name>.yaml
-
-For more information on a command, run:
-    wt <command> --help
-"
+Exit codes:
+  0  success
+  1  operational failure
+  2  usage error: unknown command, unknown option, or a missing required argument
+EOF
 }
 
-# Show version
+# Print the version of the install checkout wt runs from
+# Out: wt <version>
 show_version() {
-    echo "wt version $VERSION"
+    echo "wt $(resolve_version "$WT_SCRIPT_DIR")"
 }
 
-# Check dependencies
-check_dependencies() {
+# Check the three dependencies every command needs (git, yq, tmux). fzf, jq
+# and gh are optional — each degrades one command's feature rather than the
+# whole tool, so their absence is noted at the call site that needs them
+# (note_optional_missing, lib/utils.sh) rather than checked here, and never
+# blocks a usage-error exit or a --help page.
+check_required_dependencies() {
     local missing=()
 
     if ! command_exists git; then
@@ -180,33 +176,70 @@ check_dependencies() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required dependencies:"
         for dep in "${missing[@]}"; do
-            echo "  - $dep"
+            echo "  - $dep" >&2
         done
         exit 1
     fi
-
-    # Optional dependencies (for smart commands)
-    local optional_missing=()
-    if ! command_exists fzf; then
-        optional_missing+=("fzf (for interactive pickers: brew install fzf)")
-    fi
-    if ! command_exists jq; then
-        optional_missing+=("jq (for JSON parsing: brew install jq)")
-    fi
-    if ! command_exists gh; then
-        optional_missing+=("gh (for PR status: brew install gh)")
-    fi
-
-    if [[ ${#optional_missing[@]} -gt 0 && "${WT_WARN_DEPS:-true}" != "false" ]]; then
-        log_warn "Optional dependencies missing (some smart commands may not work):"
-        for dep in "${optional_missing[@]}"; do
-            echo "  - $dep"
-        done
-        echo ""
-    fi
 }
 
-# Main command dispatcher
+# True when the arguments name a request for a command's or a subcommand's own
+# help page:
+#   "-h"/"--help" as the command itself (the top-level page);
+#   "<command> -h|--help" for any command word, with no lookup — the
+#     handler's own -h|--help arm, or main()'s unknown-command arm, answers
+#     with no dependency on check_required_dependencies having run;
+#   "<command> <word> -h|--help" where <word> does not start with "-" and a
+#     cmd_<command>_* function exists, discovered via declare -F rather than
+#     a hand-kept list — covers wt db reset --help, wt pr conflicts --help,
+#     wt ports set --help, and (by the same rule, harmlessly) wt pr <branch>
+#     --help and wt ports <branch> --help, which reach a parser that prints
+#     help either way. This rule keys on the command word as typed, so an
+#     alias of a subcommand-bearing command (none exists today) would answer
+#     subcommand help only after the dependency check — the surface test's
+#     no-yq/no-tmux probe would report it.
+# When true, main() skips check_required_dependencies and dispatches as
+# normal — the handler's own -h|--help arm is what actually prints the page.
+# exec and send carry no cmd_exec_*/cmd_send_* functions, so the third rule
+# never fires for them: `wt exec <branch> <cmd> -h` reaches the wrapped
+# command's own "-h" rather than being swallowed here.
+# Args: $1 command word, $@ (from $2) the remaining arguments
+# Out: none (boolean via exit status)
+_wt_help_requested() {
+    local command="$1"
+    shift || true
+    local first="${1:-}"
+    local second="${2:-}"
+
+    if [[ "$command" == "-h" || "$command" == "--help" ]]; then
+        return 0
+    fi
+    [[ "$command" == -* ]] && return 1
+
+    if [[ "$first" == "-h" || "$first" == "--help" ]]; then
+        return 0
+    fi
+
+    if [[ -n "$first" && "$first" != -* && ( "$second" == "-h" || "$second" == "--help" ) ]]; then
+        declare -F | awk '{print $3}' | grep -qE "^cmd_${command}_" && return 0
+    fi
+
+    return 1
+}
+
+# Resolves the command word to its handler function before
+# check_required_dependencies runs, so an unknown command refuses with
+# nothing but its usage line and touches no dependency check or disk write;
+# the resolved handler then runs after it, unless the word is a help
+# request. Neither this function nor check_required_dependencies creates any
+# directory — a handler that writes state creates its own (init_state_file,
+# init_slots_file), so a usage error never leaves WT_CONFIG_DIR/WT_DATA_DIR
+# behind.
+# Args: $@ wt's own argv
+# Side: sets WT_CMD_NAME to the resolved command's canonical word (never the
+#   alias typed) — the handler's suffix, or the word itself for ls/rm/prune —
+#   so every die/log_error from here on reads "wt <that word>: ";
+#   check_required_dependencies (unless help was requested); die_usage /
+#   exit 2 on a bad command or bad 'help' invocation; runs the resolved handler
 main() {
     # Handle no arguments
     if [[ $# -eq 0 ]]; then
@@ -216,6 +249,18 @@ main() {
 
     local command="$1"
     shift
+
+    # 'wt help <command>' becomes '<command> --help', so it takes the exact path
+    # a direct --help does: no dependency check, alias dispatch, the handler's
+    # own page, and the unknown-command arm for a word that is no command.
+    if [[ "$command" == "help" ]]; then
+        if [[ $# -eq 1 ]]; then
+            command="$1"
+            set -- --help
+        elif [[ $# -gt 1 ]]; then
+            die_usage "help" "takes one command name — for a subcommand's page run 'wt <command> <subcommand> --help'" "wt help <command>"
+        fi
+    fi
 
     # Handle global flags
     case "$command" in
@@ -229,96 +274,118 @@ main() {
             ;;
     esac
 
-    # Check dependencies before running commands
-    check_dependencies
-
-    # Initialize config directories
-    init_config_dirs
-
-    # Dispatch to command handlers
+    # Resolve the command word to its handler — nothing here checks a
+    # dependency or writes to disk, so a word that matches no arm below
+    # exits with its usage line alone. `prune`'s extra `--merged` is held in
+    # prefix_args rather than folded into "$@" here, so it does not reach
+    # _wt_help_requested below and change whether a help request is detected
+    # — the same separation `WT_CMD_NAME="rm" cmd_delete "$@"` gave rm.
+    local handler=""
+    local -a prefix_args=()
+    WT_CMD_NAME=""
     case "$command" in
-        c|create)
-            cmd_create "$@"
+        create|c)
+            handler=cmd_create
             ;;
-        o|open)
-            cmd_open "$@"
+        open|o)
+            handler=cmd_open
             ;;
         ls)
-            cmd_smartlist "$@"
+            WT_CMD_NAME="ls"
+            handler=cmd_smartlist
             ;;
         rm)
-            WT_CMD_NAME="rm" cmd_delete "$@"
+            WT_CMD_NAME="rm"
+            handler=cmd_delete
             ;;
         prune)
             # Thin alias: the merged/closed-only door into the unified `wt rm` picker.
-            WT_CMD_NAME="prune" cmd_delete --merged "$@"
+            WT_CMD_NAME="prune"
+            prefix_args=(--merged)
+            handler=cmd_delete
             ;;
         code|cursor)
-            cmd_code "$@"
+            handler=cmd_code
             ;;
         pr)
-            cmd_pr "$@"
+            handler=cmd_pr
             ;;
         # Core commands
         delete)
-            cmd_delete "$@"
+            handler=cmd_delete
             ;;
         list)
-            cmd_list "$@"
+            handler=cmd_list
             ;;
         start|up)
-            cmd_start "$@"
+            handler=cmd_start
             ;;
         stop|down)
-            cmd_stop "$@"
+            handler=cmd_stop
             ;;
         status|st)
-            cmd_status "$@"
+            handler=cmd_status
             ;;
         health|hc)
-            cmd_health "$@"
+            handler=cmd_health
             ;;
         attach|a)
-            cmd_attach "$@"
+            handler=cmd_attach
             ;;
         run)
-            cmd_run "$@"
+            handler=cmd_run
             ;;
         exec)
-            cmd_exec "$@"
+            handler=cmd_exec
             ;;
         init)
-            cmd_init "$@"
+            handler=cmd_init
             ;;
         config)
-            cmd_config "$@"
+            handler=cmd_config
             ;;
         ports)
-            cmd_ports "$@"
+            handler=cmd_ports
             ;;
         send|s)
-            cmd_send "$@"
+            handler=cmd_send
             ;;
         logs|log)
-            cmd_logs "$@"
+            handler=cmd_logs
             ;;
         panes)
-            cmd_panes "$@"
+            handler=cmd_panes
             ;;
         doctor|doc)
-            cmd_doctor "$@"
+            handler=cmd_doctor
             ;;
         db)
-            cmd_db "$@"
+            handler=cmd_db
             ;;
         *)
-            log_error "Unknown command: $command"
-            echo ""
-            echo "Run 'wt --help' for usage information."
-            exit 1
+            printf "wt: unknown command '%s' \xe2\x80\x94 see 'wt --help'\n" "$command" >&2
+            exit 2
             ;;
     esac
+    # The canonical command word every die/log_error line names: the handler's
+    # own suffix, so an alias (st, c, doc) reads as the command it stands for.
+    # Only arms whose handler is shared or differently named set it above.
+    WT_CMD_NAME="${WT_CMD_NAME:-${handler#cmd_}}"
+
+    # A command or subcommand's own --help/-h skips the dependency check —
+    # reading help must never require yq or tmux to be installed.
+    if ! _wt_help_requested "$command" "$@"; then
+        check_required_dependencies
+    fi
+
+    if [[ ${#prefix_args[@]} -gt 0 ]]; then
+        "$handler" "${prefix_args[@]}" "$@"
+    else
+        "$handler" "$@"
+    fi
 }
 
-# Run main
-main "$@"
+# Run main only when this file is executed, not when it is sourced — the
+# surface test sources it to discover the command surface from `declare -f`,
+# and a run of main() on that source is not something it asks for.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"

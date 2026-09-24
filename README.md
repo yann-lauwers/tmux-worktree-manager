@@ -37,7 +37,7 @@ cd ~/.local/share/wt-cli
 The installer will:
 1. Check dependencies
 2. Create a `wt` symlink in `~/bin` (configurable with `--prefix`)
-3. Install shell completions (bash/zsh)
+3. Link shell completions (bash/zsh) from this checkout, so they update with it
 4. Create config directories
 
 Restart your shell, then verify:
@@ -50,6 +50,8 @@ wt --version
 
 ```bash
 rm ~/bin/wt
+rm ~/.zsh/completions/_wt
+rm ~/.local/share/bash-completion/completions/wt
 rm -rf ~/.local/share/wt-cli
 rm -rf ~/.config/wt
 rm -rf ~/.local/share/wt
@@ -95,6 +97,8 @@ wt delete feature/auth
 | `wt prune [-y]` | Merged/closed-PR worktrees only (alias for `wt rm --merged`); `-y` deletes them all |
 | `wt code [branch]` | Open worktree in editor (fzf picker) |
 | `wt pr [branch]` | Open PR in browser for a branch |
+| `wt pr conflicts [-a]` | List open PRs with merge conflicts |
+| `wt pr resolve [branch]` | Rebase or merge a conflicting PR onto its base branch |
 
 ### Core Commands
 
@@ -106,13 +110,20 @@ wt delete feature/auth
 | `wt start [branch]` | Start services |
 | `wt stop <branch> --all` | Stop services |
 | `wt status <branch>` | Show worktree status |
+| `wt health [branch]` | Live-probe services right now and report per-service health |
 | `wt attach <branch>` | Attach to tmux session |
+| `wt run <branch> <step-name>` | Re-run one named setup step from the project config |
+| `wt exec <branch> <command...>` | Run a command inside a worktree, unparsed |
 | `wt ports <branch>` | Show port assignments |
+| `wt send [branch] <service\|pane_index> <command...>` | Send a command string to one tmux pane |
+| `wt logs [branch] [service\|pane_index]` | Print the tail of a service's or pane's output |
+| `wt panes [branch]` | List a worktree's tmux panes |
 | `wt doctor` | Run diagnostic checks |
 | `wt init` | Initialize project configuration |
 | `wt config [--edit]` | View/edit configuration |
+| `wt db <subcommand>` | Manage the ephemeral Postgres: `reset`, `use-remote`/`detach`, `dump`, `url` |
 
-Run `wt <command> --help` for detailed usage of any command.
+Run `wt <command> --help`, or `wt help <command>`, for detailed usage of any command.
 
 ## Configuration
 
@@ -236,6 +247,42 @@ wt doctor
 ```
 
 Checks dependencies, config validity, state consistency, tmux health, and port conflicts.
+
+## Versioning
+
+`wt --version` prints `wt <version>`, derived from `git describe --tags --always --dirty
+--match 'v[0-9]*'` run on the install checkout — the directory `wt.sh` lives in, wherever it
+was invoked from:
+
+- `2.1.0` — HEAD is exactly on a release tag.
+- `2.1.0-3-gabc1234` — 3 commits past the tag `v2.1.0`, at commit `abc1234`.
+- any of the above with a `-dirty` suffix — uncommitted changes to a tracked file.
+- a bare commit hash (e.g. `a1b2c3d`) — no release tag is reachable, such as a shallow clone.
+- the `VERSION` constant in `wt.sh` — the install checkout is not a git repository at all.
+
+Versions follow [Semantic Versioning](https://semver.org/). wt's public interface is everything
+a script or an older install can depend on: its commands, flags and environment variables, its
+exit codes, the keys of its `--json` output, and the state files it writes under
+`$WT_DATA_DIR` (default `~/.local/share/wt`). Its human-readable output is not part of it. A
+release moves:
+
+- **MAJOR** when it removes or renames a command, flag or env var, changes what an exit code
+  means, removes or renames a `--json` key or changes its type, or writes a stored format an
+  older build cannot read.
+- **MINOR** when it adds a command, flag, env var or `--json` key.
+- **PATCH** for any other change — a fix, reworded output, docs.
+
+The highest level any change in the release reaches decides it: a release that adds one flag and
+renames another is MAJOR.
+
+Release steps:
+
+1. Bump `VERSION` in `wt.sh` in the pull request.
+2. After merge: `git tag -a vX.Y.Z <merge-sha> -m vX.Y.Z`.
+3. Run `scripts/check-release.sh` to confirm `VERSION` matches the tag.
+4. `git push origin vX.Y.Z` — CI re-runs the check on the tag push.
+
+A bad tag is replaced by a new PATCH tag, never moved.
 
 ## Testing
 

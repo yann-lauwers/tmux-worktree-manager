@@ -1,6 +1,10 @@
 #!/bin/bash
 # commands/logs.sh - Capture tmux pane output
 
+# Capture and print tmux pane output, or a direct-mode log file, for a worktree.
+# Args: none (reads -p/--project, -n/--lines, -a/--all, and [branch] [service|pane_index] from argv)
+# Out: the captured log/pane lines
+# Side: dies (exit 1) when no log file and no matching tmux session/window/pane exist
 cmd_logs() {
     local branch=""
     local project=""
@@ -13,22 +17,16 @@ cmd_logs() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "logs" "$1" "${2:-}" "wt logs [branch] [service|pane_index] [options]"
                 project="$2"
                 shift 2
                 ;;
-            --lines|-n)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+            -n|--lines)
+                require_optarg "logs" "$1" "${2:-}" "wt logs [branch] [service|pane_index] [options]"
                 lines="$2"
                 shift 2
                 ;;
-            --all|-a)
+            -a|--all)
                 show_all=1
                 shift
                 ;;
@@ -37,9 +35,7 @@ cmd_logs() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_logs_help
-                return 1
+                die_unknown_option "logs" "$1"
                 ;;
             *)
                 positionals+=("$1")
@@ -69,9 +65,7 @@ cmd_logs() {
     fi
 
     if [[ -z "$branch" ]]; then
-        log_error "Branch name is required (not in a worktree)"
-        show_logs_help
-        return 1
+        die_usage "logs" "branch name is required (not in a worktree)" "wt logs <branch> [service|pane_index] [options]"
     fi
 
     project=$(require_project "$project")
@@ -100,7 +94,7 @@ cmd_logs() {
         local pane_info
         pane_info=$(list_window_panes "$tmux_session" "$window_name")
 
-        while IFS=: read -r idx active cmd size; do
+        while IFS=: read -r idx _ _ _; do
             [[ -z "$idx" ]] && continue
 
             # Try to resolve pane name from config
@@ -176,28 +170,38 @@ _logs_from_files() {
     [[ "$found" -eq 1 ]]
 }
 
+# Print the 'wt logs' help page to stdout.
 show_logs_help() {
     cat << 'EOF'
+Prints the tail of a service's or pane's output — from its direct-mode log file when one exists,
+else from its tmux pane.
+
 Usage: wt logs [branch] [service|pane_index] [options]
        wt logs [service|pane_index] [options]  (inside worktree)
 
-Capture and display tmux pane output for a worktree.
-
 Arguments:
-  <branch>          Branch name (auto-detected inside worktree)
-  <service>         Service name to capture (resolved to pane index)
+  <branch>          Full branch name (auto-detected inside a worktree)
+  <service>         Service name to capture (resolved to a pane index or log file)
   <pane_index>      Numeric pane index to capture directly
 
 Options:
-  --lines, -n N     Number of lines to capture (default: 50)
-  --all, -a         Show output from all panes
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -n, --lines <count>   Number of lines to capture (default: 50)
+  -a, --all              Show output from every pane or every service with a log file (default: off
+                         — one target)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt logs feature/auth api-server
   wt logs feature/auth --all
   wt logs api-server --lines 100          # Inside worktree
   wt logs feature/auth 0 -n 20           # By pane index
+
+Aliases: wt log
+
+Exit codes:
+  0  output printed
+  1  no direct-mode log file and no matching tmux session, window, or service pane
+  2  usage error: unknown option, missing option argument, or missing branch
 EOF
 }

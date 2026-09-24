@@ -42,8 +42,31 @@ _wt() {
         'doc:Run diagnostic checks (alias)'
         'init:Initialize project configuration'
         'config:View/edit configuration'
+        'db:Manage a worktree'"'"'s ephemeral Postgres'
         'help:Show help'
         'version:Show version'
+    )
+
+    local -a db_subcommands
+    db_subcommands=(
+        'reset:Stop, wipe, and recreate the ephemeral Postgres'
+        'url:Print the database connection URL'
+        'dump:Refresh the cached seed-source dump'
+        'use-remote:Point env refs at the main repo'"'"'s remote DB'
+        'detach:Alias for use-remote'
+    )
+
+    local -a pr_subcommands
+    pr_subcommands=(
+        'conflicts:List open PRs with merge conflicts'
+        'c:List open PRs with merge conflicts (alias)'
+        'resolve:Rebase or merge a conflicting PR onto its base'
+    )
+
+    local -a ports_subcommands
+    ports_subcommands=(
+        'set:Override this worktree'"'"'s port for one service'
+        'clear:Remove a service'"'"'s port override'
     )
 
     # Function to get worktree branches
@@ -81,6 +104,36 @@ _wt() {
         fi
     }
 
+    # Function to complete `wt db`'s subcommand words
+    _wt_db_subcommands() {
+        _describe 'db subcommand' db_subcommands
+    }
+
+    # Function to complete `wt pr`'s subcommand words
+    _wt_pr_subcommands() {
+        _describe 'pr subcommand' pr_subcommands
+    }
+
+    # Function to complete `wt pr`'s first word: a subcommand or a branch
+    _wt_pr_first_arg() {
+        _alternative \
+            'subcommands:pr subcommand:_wt_pr_subcommands' \
+            'branches:branch:_wt_worktrees'
+    }
+
+    # Function to complete `wt ports`'s subcommand words
+    _wt_ports_subcommands() {
+        _describe 'ports subcommand' ports_subcommands
+    }
+
+    # Function to complete `wt ports`'s first word: a subcommand or a branch —
+    # `wt ports [branch]` also accepts a worktree, same as `wt pr`.
+    _wt_ports_first_arg() {
+        _alternative \
+            'subcommands:ports subcommand:_wt_ports_subcommands' \
+            'branches:branch:_wt_worktrees'
+    }
+
     # Main completion logic
     _arguments -C \
         '1: :->command' \
@@ -95,7 +148,6 @@ _wt() {
                 open|o)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-a --all)'{-a,--all}'[All projects]' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:branch:_wt_worktrees'
                     ;;
@@ -111,9 +163,27 @@ _wt() {
                         '1:branch:_wt_worktrees'
                     ;;
                 pr)
-                    _arguments \
-                        '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:branch:_wt_worktrees'
+                    case "$words[2]" in
+                        conflicts|c)
+                            _arguments \
+                                '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                                '(-a --all)'{-a,--all}'[All projects]' \
+                                '(-q --quick)'{-q,--quick}'[Omit the closing resolve hint]' \
+                                '(-h --help)'{-h,--help}'[Show help]'
+                            ;;
+                        resolve)
+                            _arguments \
+                                '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                                '(-a --all)'{-a,--all}'[All projects]' \
+                                '(-h --help)'{-h,--help}'[Show help]' \
+                                '1:branch:_wt_worktrees'
+                            ;;
+                        *)
+                            _arguments \
+                                '(-h --help)'{-h,--help}'[Show help]' \
+                                '1: :_wt_pr_first_arg'
+                            ;;
+                    esac
                     ;;
                 create|c)
                     _arguments \
@@ -129,11 +199,18 @@ _wt() {
                 start|up)
                     _arguments \
                         '(-s --service)'{-s,--service}'[Start specific service]:service:_wt_services' \
-                        '(-a --all)'{-a,--all}'[Start all services]' \
-                        '--attach[Attach to tmux after starting]' \
+                        '--front[Start frontend only]' \
+                        '--back[Start backend only]' \
+                        '--tmux[Legacy mode: send commands to tmux panes]' \
+                        '--attach[Attach to tmux after starting (requires --tmux)]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '*:worktree or service:_wt_worktrees'
+                    ;;
+                db)
+                    _arguments \
+                        '(-h --help)'{-h,--help}'[Show help]' \
+                        '1: :_wt_db_subcommands'
                     ;;
                 stop|down)
                     _arguments \
@@ -155,7 +232,7 @@ _wt() {
                     ;;
                 status|st)
                     _arguments \
-                        '--services[Show detailed service status]' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:worktree:_wt_worktrees'
@@ -163,6 +240,7 @@ _wt() {
                 health|hc)
                     _arguments \
                         '(-t --timeout)'{-t,--timeout}'[Seconds to wait per service]:seconds:' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
                         '1:worktree:_wt_worktrees'
@@ -191,9 +269,10 @@ _wt() {
                 ports)
                     _arguments \
                         '(-c --check)'{-c,--check}'[Check port availability]' \
+                        '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:subcommand or worktree:(set clear)'
+                        '1: :_wt_ports_first_arg'
                     ;;
                 send|s)
                     _arguments \
@@ -221,13 +300,14 @@ _wt() {
                 doctor|doc)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
+                        '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 ls)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-q --quick)'{-q,--quick}'[Skip PR status check]' \
-                        '(-s --status)'{-s,--status}'[Show PR status (default)]' \
+                        '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 rm)
@@ -242,13 +322,13 @@ _wt() {
                 list)
                     _arguments \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
-                        '(-s --status)'{-s,--status}'[Show status information]' \
+                        '--status[Show status information]' \
                         '--json[Output as JSON]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 init)
                     _arguments \
-                        '(-n --name)'{-n,--name}'[Project name]:name:' \
+                        '--name[Project name]:name:' \
                         '(-f --force)'{-f,--force}'[Overwrite existing config]' \
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;

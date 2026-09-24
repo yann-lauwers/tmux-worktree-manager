@@ -3,6 +3,8 @@
 
 load test_helper
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     setup_test_dirs
     load_lib "utils"
@@ -17,15 +19,20 @@ setup() {
     source "$WT_SCRIPT_DIR/commands/init.sh"
     source "$WT_SCRIPT_DIR/commands/config.sh"
     source "$WT_SCRIPT_DIR/commands/list.sh"
+    source "$WT_SCRIPT_DIR/commands/smartlist.sh"
     source "$WT_SCRIPT_DIR/commands/status.sh"
     source "$WT_SCRIPT_DIR/commands/health.sh"
     source "$WT_SCRIPT_DIR/commands/ports.sh"
     source "$WT_SCRIPT_DIR/commands/run.sh"
     source "$WT_SCRIPT_DIR/commands/exec.sh"
     source "$WT_SCRIPT_DIR/commands/create.sh"
+    source "$WT_SCRIPT_DIR/commands/open.sh"
     source "$WT_SCRIPT_DIR/commands/delete.sh"
     source "$WT_SCRIPT_DIR/commands/start.sh"
     source "$WT_SCRIPT_DIR/commands/stop.sh"
+    source "$WT_SCRIPT_DIR/commands/db.sh"
+    source "$WT_SCRIPT_DIR/commands/pr.sh"
+    source "$WT_SCRIPT_DIR/commands/logs.sh"
 
     # Create a test git repo
     TEST_REPO="$TEST_TMPDIR/test-repo"
@@ -86,6 +93,20 @@ hooks:
     [[ "$output" == *"Initialize"* ]] || [[ "$output" == *"init"* ]]
 }
 
+@test "init: -n is refused as unknown option, naming --name" {
+    run cmd_init -n x 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt init: unknown option '-n'"* ]]
+    [[ "$output" == *"--name"* ]]
+}
+
+@test "init: --name still works" {
+    cd "$TEST_REPO"
+    run cmd_init --name my-project 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ -f "$WT_PROJECTS_DIR/my-project.yaml" ]]
+}
+
 # ===== config command =====
 
 @test "config: shows help with --help" {
@@ -116,6 +137,12 @@ hooks:
     [[ "$output" == *"list"* ]] || [[ "$output" == *"List"* ]]
 }
 
+@test "list: --help shows --status with no -s short form" {
+    run cmd_list --help
+    [[ "$output" == *"--status"* ]]
+    [[ "$output" != *"-s,"* ]]
+}
+
 @test "list: shows empty state for new project" {
     _create_test_config "testproj"
     run cmd_list -p "testproj" 2>&1
@@ -136,6 +163,64 @@ hooks:
     [[ "$status" -eq 0 ]]
     # Should contain JSON array bracket
     [[ "$output" == *"["* ]]
+}
+
+@test "list: -s is refused as unknown option, naming --status" {
+    run cmd_list -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt list: unknown option '-s'"* ]]
+    [[ "$output" == *"--status"* ]]
+}
+
+@test "list: -s with a value is refused the same way" {
+    run cmd_list -s running 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt list: unknown option '-s'"* ]]
+    [[ "$output" == *"--status"* ]]
+}
+
+@test "list: --status prints the session and dirty-tree columns" {
+    _create_test_config "testproj"
+    create_worktree_state "testproj" "main" "$TEST_REPO" 0
+    run cmd_list -p "testproj" --status 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"SESSION"* ]]
+    [[ "$output" == *"STATUS"* ]]
+}
+
+# ===== ls command =====
+
+@test "ls: shows help with --help" {
+    run cmd_smartlist --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls: --help shows neither -s nor --status" {
+    run cmd_smartlist --help
+    [[ "$output" != *"-s,"* ]]
+    [[ "$output" != *"--status"* ]]
+}
+
+@test "ls: -s is refused as unknown option, naming -q" {
+    run cmd_smartlist -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt ls: unknown option '-s'"* ]]
+    [[ "$output" == *"-q"* ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls: --status is refused the same way" {
+    run cmd_smartlist --status 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt ls: unknown option '--status'"* ]]
+    [[ "$output" == *"-q"* ]]
+    [[ "$output" == *"PR status"* ]]
+}
+
+@test "ls -q: skips the PR-status lookup and exits 0 with no worktrees" {
+    run cmd_smartlist -q 2>&1
+    [[ "$status" -eq 0 ]]
 }
 
 # ===== ports command =====
@@ -216,6 +301,82 @@ hooks:
     [[ "$output" == *"feature/status-test"* ]]
 }
 
+@test "status: --services is refused, naming the default" {
+    run cmd_status --services 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt status: unknown option '--services'"* ]]
+    [[ "$output" == *"shown by default"* ]]
+}
+
+@test "status: no flag shows the standalone Ports section for a project with no services" {
+    create_yaml_fixture "$WT_PROJECTS_DIR/noservicesproj.yaml" "name: noservicesproj
+repo_path: $TEST_REPO
+ports:
+  reserved:
+    range: { min: 3000, max: 3010 }
+    slots: 3
+    services: {}
+  dynamic:
+    range: { min: 4000, max: 5000 }
+    services: {}
+services: []
+tmux:
+  session: wt-test-cmd-noservices
+  layout: tiled
+  windows:
+    - name: shell
+      panes:
+        - command: echo shell"
+    load_project_config "noservicesproj"
+
+    cd "$TEST_REPO"
+    local wt_path
+    wt_path=$(create_worktree "feature/status-noservices" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "noservicesproj" "feature/status-noservices" "$wt_path" 0
+    claim_slot "noservicesproj" "feature/status-noservices" 3
+
+    run cmd_status -p "noservicesproj" "feature/status-noservices" 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Ports"* ]]
+}
+
+@test "status: no flag shows the service table for a project with services" {
+    _create_test_config "svcproj"
+    load_project_config "svcproj"
+
+    cd "$TEST_REPO"
+    local wt_path
+    wt_path=$(create_worktree "feature/status-services" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "svcproj" "feature/status-services" "$wt_path" 0
+    claim_slot "svcproj" "feature/status-services" 3
+
+    run cmd_status -p "svcproj" "feature/status-services" 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"web"* ]]
+    [[ "$output" != *"Ports"* ]]
+}
+
+# ===== logs command =====
+
+@test "logs: -n behaves as --lines (unchanged)" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    local log_dir="$WT_DATA_DIR/logs/testproj"
+    mkdir -p "$log_dir"
+    local log_file="$log_dir/feature-logs-test-web.log"
+    seq 1 20 > "$log_file"
+
+    run cmd_logs -p "testproj" "feature/logs-test" "web" -n 5
+    [[ "$status" -eq 0 ]]
+    local n_output="$output"
+
+    run cmd_logs -p "testproj" "feature/logs-test" "web" --lines 5
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "$n_output" ]]
+    [[ "$output" == *"16"$'\n'"17"$'\n'"18"$'\n'"19"$'\n'"20"* ]]
+}
+
 # ===== start command =====
 
 @test "start: shows help with --help" {
@@ -224,12 +385,26 @@ hooks:
     [[ "$output" == *"start"* ]] || [[ "$output" == *"Start"* ]]
 }
 
+@test "start: -s is still --service, not an unknown option" {
+    run cmd_start -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt start: option -s requires an argument"* ]]
+    [[ "$output" != *"unknown option"* ]]
+}
+
 # ===== stop command =====
 
 @test "stop: shows help with --help" {
     run cmd_stop --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"stop"* ]] || [[ "$output" == *"Stop"* ]]
+}
+
+@test "stop: -s is still --service, not an unknown option" {
+    run cmd_stop -s 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt stop: option -s requires an argument"* ]]
+    [[ "$output" != *"unknown option"* ]]
 }
 
 # ===== run command =====
@@ -261,6 +436,20 @@ hooks:
     run cmd_exec -p "testproj" "feature/exec-cmd" pwd 2>&1
     [[ "$status" -eq 0 ]]
     [[ "$output" == *".worktrees/feature-exec-cmd"* ]]
+}
+
+@test "exec: --help after the branch reaches the wrapped command, not wt's own help" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    local wt_path
+    wt_path=$(create_worktree "feature/exec-help" "" "$TEST_REPO" 2>/dev/null)
+    create_worktree_state "testproj" "feature/exec-help" "$wt_path" 0
+    claim_slot "testproj" "feature/exec-help" 3
+
+    run cmd_exec -p "testproj" "feature/exec-help" echo --help 2>&1
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--help" ]]
 }
 
 # ===== create + delete lifecycle =====
@@ -350,7 +539,7 @@ hooks:
         cmd_delete -f -p testproj "feature/nonexistent"
     '
     [[ "$status" -ne 0 ]]
-    [[ "$output" == *"not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
 }
 
 @test "delete: cleans up orphaned slot when directory missing" {
@@ -375,6 +564,20 @@ hooks:
     local new_slot
     new_slot=$(claim_slot "testproj" "feature/c" 2)
     [[ "$new_slot" == "0" ]]
+}
+
+@test "delete: cmd_delete -f removes both the state entry and the slot for an orphaned worktree" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+
+    claim_slot "testproj" "feature/orphan-direct" 3
+    create_worktree_state "testproj" "feature/orphan-direct" "/nonexistent/path/orphan-direct" 0
+
+    run cmd_delete -f -p "testproj" "feature/orphan-direct"
+    [[ "$status" -eq 0 ]]
+
+    [[ "$(get_worktree_state "testproj" "feature/orphan-direct" "path")" == "" ]]
+    [[ "$(get_slot_for_worktree "testproj" "feature/orphan-direct")" == "" ]]
 }
 
 # ===== exec with port env vars =====
@@ -610,7 +813,7 @@ hooks:
 
 @test "health: rejects an unknown option" {
     run cmd_health --nope
-    [[ "$status" -eq 1 ]]
+    [[ "$status" -eq 2 ]]
 }
 
 # Regression: a checkout wt does not manage has no slot and no services, so
@@ -620,7 +823,7 @@ hooks:
     load_project_config "testproj"
     run cmd_health -p "testproj" "feature/never-created"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"Worktree not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
 }
 
 # ===== ports: unmanaged-branch regression =====
@@ -632,5 +835,320 @@ hooks:
     load_project_config "testproj"
     run cmd_ports -p "testproj" "feature/never-created"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"Worktree not found"* ]]
+    [[ "$output" == *"no worktree for branch"* ]]
+}
+
+# ===== create/open/db: canonical naming and usage-error contract =====
+
+@test "create: unknown option stderr names 'wt create:', not 'wt c:'" {
+    run cmd_create --bogus 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt create: unknown option"* ]]
+    [[ "$output" != *"wt c:"* ]]
+}
+
+@test "open: unknown option stderr names 'wt open:', not 'wt o:'" {
+    run cmd_open --bogus 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option"* ]]
+    [[ "$output" != *"wt o:"* ]]
+}
+
+@test "open: -a is refused, naming the default" {
+    run cmd_open -a 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option '-a'"* ]]
+    [[ "$output" == *"omit it"* ]]
+}
+
+@test "open: --all is refused the same way" {
+    run cmd_open --all 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt open: unknown option '--all'"* ]]
+    [[ "$output" == *"omit it"* ]]
+}
+
+@test "delete -p with no value: standard usage line, exit 2, names 'wt delete:'" {
+    run cmd_delete -p 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt delete: option -p requires an argument"* ]]
+    [[ "$output" == *"see 'wt delete --help'"* ]]
+}
+
+@test "rm --project with no value: standard usage line, exit 2, names 'wt rm:'" {
+    WT_CMD_NAME="rm" run cmd_delete --project 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt rm: option --project requires an argument"* ]]
+    [[ "$output" == *"see 'wt rm --help'"* ]]
+}
+
+@test "prune -p with no value: standard usage line, exit 2, names 'wt prune:'" {
+    WT_CMD_NAME="prune" run cmd_delete -p 2>&1
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt prune: option -p requires an argument"* ]]
+    [[ "$output" == *"see 'wt prune --help'"* ]]
+}
+
+@test "db url: --help prints no URL and exits 0" {
+    run cmd_db_url --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Prints the database connection URL"* ]]
+    [[ "$output" != *"postgres://"* ]]
+}
+
+@test "db: no subcommand exits 2" {
+    run cmd_db
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"wt db: missing subcommand"* ]]
+}
+
+# ===== wt help <command> ================================================
+# 'wt help <command>' opens that command's own --help page through the
+# existing help path (main() rewrites it to '<command> --help' before
+# dispatch), so every assertion below runs the real wt.sh entry point.
+
+@test "help: every dispatched command word (canonical and alias), create and delete among them, matches 'wt <word> --help' byte for byte (C1, C2)" {
+    load help_surface
+    local checked=0 seen=""
+    while IFS='|' read -r kind _invoke display _flags _subwords; do
+        [[ "$kind" != "COMMAND" ]] && continue
+        local word
+        IFS=',' read -ra words <<< "$display"
+        for word in "${words[@]}"; do
+            run "$WT_SCRIPT_DIR/wt.sh" help "$word"
+            local help_status="$status" help_output="$output"
+            run "$WT_SCRIPT_DIR/wt.sh" "$word" --help
+            [[ "$help_status" -eq 0 ]]
+            [[ "$status" -eq 0 ]]
+            [[ "$help_output" == "$output" ]]
+            checked=$((checked + 1))
+            seen+=" $word"
+        done
+    done < <(_wt_build_units "$WT_SCRIPT_DIR")
+    [[ "$checked" -gt 0 ]]
+    # The ticket names create and delete; the sweep has to have reached both.
+    [[ "$seen " == *" create "* && "$seen " == *" delete "* ]]
+}
+
+@test "help: 'wt help <command>' works with yq and tmux absent, like --help (C3)" {
+    load help_surface
+    local shim home_dir
+    shim="$TEST_TMPDIR/help-shim"
+    home_dir="$TEST_TMPDIR/help-home"
+    mkdir -p "$home_dir"
+    _wt_build_help_shim "$shim"
+
+    local out="$TEST_TMPDIR/help-out.txt"
+    _wt_run_help_probe "$WT_SCRIPT_DIR" "$shim" "$home_dir" "$out" help create
+    [[ "$?" -eq 0 ]]
+    run cat "$out"
+    [[ "$output" == *"Usage: wt create"* ]]
+
+    local created
+    created=$(find "$home_dir" -mindepth 1 2>/dev/null | wc -l)
+    [[ "$created" -eq 0 ]]
+}
+
+@test "help: 'wt help bogus' exits 2, empty stdout, one stderr line naming the unknown command (C4)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" help bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt: unknown command 'bogus' — see 'wt --help'" ]]
+}
+
+@test "help: 'wt help' alone prints the top-level page, exit 0 (C5)" {
+    run "$WT_SCRIPT_DIR/wt.sh" help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+    [[ "$output" == *"Commands:"* ]]
+}
+
+@test "help: 'wt help help' and 'wt help --help' land on the top-level page (C5)" {
+    run "$WT_SCRIPT_DIR/wt.sh" help help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+
+    run "$WT_SCRIPT_DIR/wt.sh" help --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Usage: wt <command>"* ]]
+}
+
+@test "help: 'wt help db reset' (extra words) exits 2, empty stdout, die_usage line on stderr" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" help db reset
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt help: takes one command name — for a subcommand's page run 'wt <command> <subcommand> --help' — see 'wt help --help'"$'\n'"usage: wt help <command>" ]]
+}
+
+@test "wt --help lists 'help <command>' as opening one command's page (C6)" {
+    run "$WT_SCRIPT_DIR/wt.sh" --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"  help <command>   Show one command's page"* ]]
+}
+
+@test "bare 'wt' short usage mentions 'wt help <command>' (C7)" {
+    run "$WT_SCRIPT_DIR/wt.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"wt help <command>"* ]]
+}
+
+# ===== C8: already-shipped usage errors keep their wording end to end =====
+
+@test "wt bogus: unknown command, exit 2, empty stdout, one stderr line, nothing written to disk, holds with fzf absent from PATH (C8)" {
+    local shim home_dir
+    shim="$(mktemp -d)"
+    home_dir="$(mktemp -d)"
+    build_shim_without "$shim" fzf
+
+    run --separate-stderr env -i HOME="$home_dir" PATH="$shim" \
+        WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
+        "$WT_SCRIPT_DIR/wt.sh" bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt: unknown command 'bogus' — see 'wt --help'" ]]
+    [[ ! -e "$home_dir/config" ]]
+    [[ ! -e "$home_dir/data" ]]
+}
+
+@test "wt db bogus: unknown subcommand, exit 2, empty stdout, stderr names 'wt db --help' (C8)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
+}
+
+@test "bare wt db: missing subcommand, exit 2, empty stdout, usage line on stderr (C8)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]" ]]
+}
+
+@test "wt create --bogus: unknown option, exit 2, empty stdout, stderr names 'wt create:' (C8)" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" create --bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"wt create: unknown option '--bogus'"* ]]
+    [[ "$stderr" == *"see 'wt create --help'"* ]]
+}
+
+# ===== C1-C5: the same usage error — exact stderr, empty stdout, exit 2, no
+# WT_CONFIG_DIR/WT_DATA_DIR written — holds under a fresh HOME with fzf, jq
+# and gh all missing from PATH, whichever single one of them is missing, and
+# with every one of them installed. A subcommand's own parser dies before any
+# handler body ever reaches for an optional tool, so none of this changes the
+# wording main()'s dispatch and each handler's die_usage/die_unknown_option
+# already print. =====
+
+# Run wt.sh under a PATH missing the named optional tools, with a fresh empty
+# HOME and WT_CONFIG_DIR/WT_DATA_DIR beneath it, WT_WARN_DEPS unset.
+# Args: $1 space-separated tools to leave out, $@ (from $2) wt's argv
+# Side: bats `run --separate-stderr`; sets probe_home to the fresh HOME
+_run_usage_without() {
+    local missing="$1"
+    shift
+    local shim
+    shim="$(mktemp -d)"
+    probe_home="$(mktemp -d)"
+    # shellcheck disable=SC2086  # $missing is a word list
+    build_shim_without "$shim" $missing
+    run --separate-stderr env -i HOME="$probe_home" PATH="$shim" \
+        WT_CONFIG_DIR="$probe_home/config" WT_DATA_DIR="$probe_home/data" \
+        "$WT_SCRIPT_DIR/wt.sh" "$@"
+}
+
+# Assert the last _run_usage_without was a clean usage error: exit 2, nothing
+# on stdout, stderr exactly $1, and no config or data directory created.
+# Args: $1 expected stderr
+_assert_clean_usage_error() {
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "$1" ]]
+    [[ ! -e "$probe_home/config" ]]
+    [[ ! -e "$probe_home/data" ]]
+}
+
+@test "wt db bogus: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C1)" {
+    _run_usage_without "fzf jq gh" db bogus
+    _assert_clean_usage_error "wt db: unknown subcommand 'bogus' — see 'wt db --help'"
+}
+
+@test "bare wt db: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C2)" {
+    _run_usage_without "fzf jq gh" db
+    _assert_clean_usage_error "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]"
+}
+
+@test "wt create --bogus: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C3)" {
+    _run_usage_without "fzf jq gh" create --bogus
+    _assert_clean_usage_error "wt create: unknown option '--bogus' — see 'wt create --help'"
+}
+
+@test "wt db bogus: the same stderr holds whichever single optional tool is missing (C4)" {
+    local tool
+    for tool in fzf jq gh; do
+        _run_usage_without "$tool" db bogus
+        _assert_clean_usage_error "wt db: unknown subcommand 'bogus' — see 'wt db --help'"
+    done
+}
+
+@test "wt db bogus: the same stderr holds with fzf, jq and gh all installed, under the real PATH (C5)" {
+    local home_dir
+    home_dir="$(mktemp -d)"
+
+    run --separate-stderr env HOME="$home_dir" PATH="$PATH" \
+        WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
+        "$WT_SCRIPT_DIR/wt.sh" db bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
+}
+
+# ===== C9: 'wt ports <word>' / 'wt pr <word>' still read a bogus word as a
+# branch name, never as an unknown subcommand — the help routing above only
+# fires on the literal command word 'help'. =====
+
+@test "ports: a bogus word is read as a branch name, not an unknown subcommand (C9)" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    run cmd_ports -p "testproj" "nosuchbranch" 2>&1
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"no worktree for branch 'nosuchbranch'"* ]]
+    [[ "$output" != *"unknown subcommand"* ]]
+}
+
+@test "pr: a bogus word is read as a branch name, not an unknown subcommand (C9)" {
+    stub_gh "exit 1"
+
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr nosuchbranch
+    [[ "$status" -eq 1 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"No PR found for branch: nosuchbranch"* ]]
+    [[ "$stderr" != *"unknown subcommand"* ]]
+}
+
+@test "pr <branch>: PR found exits 0 and prints its URL" {
+    stub_gh 'if [[ "$1" == "pr" && "$2" == "view" ]]; then echo "https://github.com/o/r/pull/1"; else exit 1; fi'
+    for opener in open xdg-open; do
+        printf '#!/bin/bash\nexit 0\n' > "$TEST_TMPDIR/bin/$opener"
+        chmod +x "$TEST_TMPDIR/bin/$opener"
+    done
+
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr feature/auth
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"https://github.com/o/r/pull/1"* ]]
+}
+
+@test "pr --bogus: unknown option, exit 2" {
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr --bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"wt pr: unknown option '--bogus'"* ]]
+}
+
+@test "pr: no branch given and none detected outside any worktree, exit 1" {
+    cd "$TEST_TMPDIR"
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" pr
+    [[ "$status" -eq 1 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == *"Not in a worktree and no branch specified"* ]]
 }

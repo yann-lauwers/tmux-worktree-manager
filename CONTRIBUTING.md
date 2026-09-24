@@ -18,9 +18,10 @@ Thank you for your interest in contributing to **wt** — the Git Worktree Manag
 
 - **bash** (macOS bash 3.2+ or any modern bash)
 - **git** 2.5+
-- **yq** (mikefarah v4) — `brew install yq`
+- **yq** — the suite is tested against **mikefarah/yq v4.53.6**, the exact release pinned by `YQ_VERSION` in `.github/workflows/ci.yml`. `brew install yq` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/mikefarah/yq/releases/tag/v4.53.6
 - **tmux** — `brew install tmux`
 - **bats-core** (for running tests) — `brew install bats-core`
+- **shellcheck** — the suite itself requires the pinned release, not only the lint: `tests/test_githooks.bats` runs the real `koalaman/shellcheck v0.11.0` against a planted finding, and fails loudly, naming the release, when it is missing from PATH. It is the exact release pinned by `SHELLCHECK_VERSION` in `.github/workflows/ci.yml` and read by `scripts/shellcheck.sh`, at severity **info** and above (the floor `scripts/shellcheck.sh` sets on the invocation — `.shellcheckrc` carries no severity key). `brew install shellcheck` installs whatever is current instead; to match CI, download the release binary for your platform from https://github.com/koalaman/shellcheck/releases/tag/v0.11.0
 
 ### Development Installation
 
@@ -30,7 +31,7 @@ git clone git@github.com:yann-lauwers/tmux-worktree-manager.git
 cd tmux-worktree-manager
 
 # Install dependencies
-brew install yq tmux bats-core
+brew install tmux bats-core   # yq: the pinned release binary — see Prerequisites
 
 # Make scripts executable and install
 ./install.sh
@@ -112,7 +113,17 @@ Open an issue with the `enhancement` label and describe:
    bats tests/
    ```
 
-5. **Open a pull request** against `main` with:
+5. **Enable the pre-push hook once**, so a shellcheck finding or a red suite refuses the push locally instead of on CI:
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+   It runs `scripts/shellcheck.sh` — the pinned shellcheck over the whole command/library
+   surface, at severity info and above — then `bats tests/`, stopping at the first failure
+   and naming which one refused.
+   Run the lint alone with `scripts/shellcheck.sh`. The only suppression the review accepts
+   is an inline `# shellcheck disable=SCxxxx` carrying a reason.
+
+6. **Open a pull request** against `main` with:
    - A clear title summarising the change
    - A description explaining *why* the change is needed
    - Reference to any related issue (e.g. `Closes #42`)
@@ -150,7 +161,7 @@ Open an issue with the `enhancement` label and describe:
   ```bash
   log_info  "informational message"   # → stderr
   log_warn  "warning message"         # → stderr
-  log_error "error message"           # → stderr
+  log_error "error message"           # → stderr, as "wt <command>: error message"
   log_success "success message"       # → stderr
   ```
 - Use `yq` (mikefarah v4) for all YAML reads/writes; use `strenv()` for safe string injection.
@@ -166,9 +177,23 @@ Open an issue with the `enhancement` label and describe:
 ### Adding a New Command
 
 1. Create `commands/<name>.sh` with a `cmd_<name>()` function.
-2. Register the command in the dispatcher in `wt.sh`.
-3. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh`.
-4. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
+2. Register the command in the dispatcher in `wt.sh`, **canonical name first** in the case
+   arm (`name|alias)`, never `alias|name)`) — the standard unknown-option line and the
+   surface test both name whichever token comes first.
+3. Give it a `show_<name>_help()` page: a description paragraph first (ending in a period,
+   no `Usage:` line first), every flag listed under `Options:` with its `default:` stated,
+   every subcommand named somewhere on the page, and an `Exit codes:` block listing at
+   least `0` and `2`. Route every unrecognised flag through `die_unknown_option "<name>" "$1"`
+   and every other usage error through `die_usage`, both using that same canonical name —
+   this is the page-shape contract `tests/help_surface.bash` enforces by discovering the
+   command from source, not from a hand-kept list.
+4. Keep the argument parser in the `while [[ $# -gt 0 ]] ... case "$1" in ... esac; done`
+   shape every other command uses — that shape is what the surface test's discovery reads
+   flags and subcommands out of.
+5. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh`.
+6. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
+7. Run `bats tests/test_help_surface.bats` — a command, subcommand or flag with no
+   conforming page fails it by name.
 
 ---
 
@@ -197,6 +222,7 @@ bats tests/ --verbose-run
 - **Every new feature** must include unit tests in the relevant `tests/test_<module>.bats` **and** integration tests in `tests/test_commands.bats` or `tests/test_e2e.bats`.
 - **Every bug fix** must include a regression test — write a test that would have caught the bug *before* your fix, then verify it passes *after*.
 - **Prefer tests without tmux** — most logic can be exercised by calling library functions directly. Reserve tmux-dependent tests for `test_e2e.bats`.
+- **Every command or flag added or changed** must keep `bats tests/test_help_surface.bats` green — it discovers the whole command/subcommand/flag surface from source and checks each one's `--help` page against the page-shape contract; see `tests/help_surface.bash` for the rules it enforces.
 
 ### Writing Tests
 

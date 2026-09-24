@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/attach.sh - Attach to a worktree's tmux session
 
+# Attach to a worktree's tmux session, creating its window first if none exists.
+# Args: $1 branch (detected from the current directory when omitted)
+# Side: creates/attaches a tmux session and window; dies (exit 1) if the worktree is missing
 cmd_attach() {
     local branch=""
     local window=""
@@ -10,12 +13,12 @@ cmd_attach() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -w|--window)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "attach" "$1" "${2:-}" "wt attach <branch> [options]"
                 window="$2"
                 shift 2
                 ;;
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "attach" "$1" "${2:-}" "wt attach <branch> [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -24,9 +27,7 @@ cmd_attach() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_attach_help
-                return 1
+                die_unknown_option "attach" "$1"
                 ;;
             *)
                 if [[ -z "$branch" ]]; then
@@ -41,9 +42,7 @@ cmd_attach() {
     if [[ -z "$branch" ]]; then
         branch=$(detect_worktree_branch)
         if [[ -z "$branch" ]]; then
-            log_error "Branch name is required"
-            show_attach_help
-            return 1
+            die_usage "attach" "branch name is required and could not be detected" "wt attach <branch> [options]"
         fi
         log_info "Detected worktree branch: $branch"
     fi
@@ -67,7 +66,7 @@ cmd_attach() {
             wt_path=$(get_worktree_path "$project" "$branch")
             create_session "$window_name" "$wt_path" "$PROJECT_CONFIG_FILE" "$window"
         else
-            die "No worktree found for branch: $branch"
+            die_no_worktree "attach" "$branch" "$project"
         fi
     fi
 
@@ -75,22 +74,33 @@ cmd_attach() {
     attach_session "$window_name" "$PROJECT_CONFIG_FILE"
 }
 
+# Print the 'wt attach' help page to stdout.
 show_attach_help() {
     cat << 'EOF'
+Attaches to the tmux session for a worktree, creating its window first if none exists yet.
+Prints nothing on success — the terminal switches into tmux.
+
 Usage: wt attach <branch> [options]
 
-Attach to the tmux session for a worktree.
-
 Arguments:
-  <branch>          Branch name of the worktree
+  <branch>          Full branch name of the worktree (detected from the
+                    current directory when omitted)
 
 Options:
-  -w, --window      Create window at specific index (moves existing if occupied)
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -w, --window <index>   Create the window at this index, moving an existing occupant aside
+                          (default: tmux assigns the next index)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt attach feature/auth
   wt attach feature/auth -w 2    # Create at window index 2
+
+Aliases: wt a
+
+Exit codes:
+  0  attached
+  1  no worktree found for the branch, or the tmux session could not be created
+  2  usage error: unknown option, missing option argument, or missing branch
 EOF
 }

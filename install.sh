@@ -67,7 +67,7 @@ check_dependencies() {
     if ! command -v gh &>/dev/null; then optional+=("gh"); fi
 
     if [[ ${#optional[@]} -gt 0 ]]; then
-        log_info "Optional dependencies (for smart commands like 'wt new', 'wt ls', 'wt rm'):"
+        log_info "Optional dependencies (for smart commands like 'wt open', 'wt ls', 'wt rm'):"
         for dep in "${optional[@]}"; do
             echo "  - $dep"
         done
@@ -124,7 +124,11 @@ create_symlink() {
     fi
 }
 
-# Install shell completions
+# Link shell completions into $HOME so they track this checkout, replacing
+# any existing symlink or stale regular-file copy at the target path.
+# Args: $1 shell name ("bash"/"zsh"), defaults to $SHELL's basename
+# Side: writes a symlink under $HOME's completion dir; appends a source/fpath
+#   line to .bashrc/.zshrc when not already present
 install_completions() {
     local shell="${1:-}"
 
@@ -137,8 +141,8 @@ install_completions() {
         bash)
             local bash_completion_dir="${BASH_COMPLETION_USER_DIR:-$HOME/.local/share/bash-completion/completions}"
             mkdir -p "$bash_completion_dir"
-            cp "$SCRIPT_DIR/completions/wt.bash" "$bash_completion_dir/wt"
-            log_success "Installed bash completions to $bash_completion_dir/wt"
+            ln -sfn "$SCRIPT_DIR/completions/wt.bash" "$bash_completion_dir/wt"
+            log_success "Linked bash completions: $bash_completion_dir/wt -> $SCRIPT_DIR/completions/wt.bash"
 
             # Also add to .bashrc for immediate availability
             local bashrc="$HOME/.bashrc"
@@ -156,8 +160,8 @@ install_completions() {
         zsh)
             local zsh_completion_dir="${ZSH_COMPLETION_DIR:-$HOME/.zsh/completions}"
             mkdir -p "$zsh_completion_dir"
-            cp "$SCRIPT_DIR/completions/wt.zsh" "$zsh_completion_dir/_wt"
-            log_success "Installed zsh completions to $zsh_completion_dir/_wt"
+            ln -sfn "$SCRIPT_DIR/completions/wt.zsh" "$zsh_completion_dir/_wt"
+            log_success "Linked zsh completions: $zsh_completion_dir/_wt -> $SCRIPT_DIR/completions/wt.zsh"
 
             # Add to fpath in .zshrc
             local zshrc="$HOME/.zshrc"
@@ -187,48 +191,86 @@ create_config_dirs() {
     mkdir -p "$HOME/.local/share/wt/logs"
 }
 
+# Print a usage error naming what's wrong, then exit 2
+# Args: $1 the message describing the bad option or argument
+# Side: writes to stderr, exits 2
+usage_error() {
+    log_error "$1" >&2
+    echo "Run './install.sh --help' for usage information." >&2
+    exit 2
+}
+
+# Print install.sh's --help page
+# Side: writes to stdout
+show_help() {
+    cat <<EOF
+Usage: ./install.sh [options]
+
+Symlinks wt.sh onto your PATH and links its shell completions so they
+track this checkout.
+
+Options:
+  --prefix <dir>      Install directory (default: ~/bin)
+  --no-completions    Skip shell completion installation (default: installed)
+  -h, --help          Show this help and exit
+
+Exit codes:
+  0  installed
+  1  aborted (e.g. declined a prompt)
+  2  usage error
+EOF
+}
+
+# Parse install.sh's own command-line flags
+# Side: sets INSTALL_DIR and SKIP_COMPLETIONS; exits 0 after printing --help;
+#   exits 2 via usage_error on an unknown flag, a stray positional argument,
+#   or --prefix with no value
+parse_args() {
+    INSTALL_DIR="$HOME/bin"
+    SKIP_COMPLETIONS=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prefix)
+                if [[ $# -lt 2 || -z "$2" ]]; then
+                    usage_error "--prefix requires a directory: --prefix <dir>"
+                fi
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --no-completions)
+                SKIP_COMPLETIONS=1
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                usage_error "Unknown option: $1"
+                ;;
+        esac
+    done
+}
+
 # Main installation
+# Side: runs check_dependencies, make_executable, create_symlink,
+#   install_completions and create_config_dirs, in order
 main() {
+    local INSTALL_DIR SKIP_COMPLETIONS
+    parse_args "$@"
+
     echo ""
     echo -e "${BOLD}wt - Git Worktree Manager${NC}"
     echo -e "${BOLD}=========================${NC}"
     echo ""
 
-    # Parse arguments
-    local install_dir="$HOME/bin"
-    local skip_completions=0
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --prefix)
-                install_dir="$2"
-                shift 2
-                ;;
-            --no-completions)
-                skip_completions=1
-                shift
-                ;;
-            -h|--help)
-                echo "Usage: ./install.sh [options]"
-                echo ""
-                echo "Options:"
-                echo "  --prefix DIR        Install directory (default: ~/bin)"
-                echo "  --no-completions    Skip shell completion installation"
-                echo "  -h, --help          Show this help"
-                exit 0
-                ;;
-            *)
-                shift
-                ;;
-        esac
-    done
-
     # Run installation steps
     check_dependencies
     make_executable
-    create_symlink "$install_dir"
+    create_symlink "$INSTALL_DIR"
 
-    if [[ "$skip_completions" -eq 0 ]]; then
+    if [[ "$SKIP_COMPLETIONS" -eq 0 ]]; then
         echo ""
         install_completions
     fi
@@ -243,7 +285,7 @@ main() {
     echo "  2. Verify installation: wt --version"
     echo "  3. Initialize a project: cd <your-repo> && wt init"
     echo ""
-    echo "Smart commands: wt new, wt open, wt ls, wt rm, wt prune, wt code, wt pr"
+    echo "Smart commands: wt open, wt ls, wt rm, wt prune, wt code, wt pr"
     echo "For help: wt --help"
     echo ""
 }

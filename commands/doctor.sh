@@ -1,31 +1,34 @@
 #!/bin/bash
 # commands/doctor.sh - Diagnose project health
 
+# Run wt's six diagnostic checks and print a PASS/FAIL/WARN line per check.
+# Args: none (reads -p/--project from argv)
+# Out: the diagnostic report
+# Side: returns 1 when any check failed
 cmd_doctor() {
     local project=""
     local passed=0
     local failed=0
     local warnings=0
+    local json_output=0
+    local section=""
+    local check_idx=0
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "doctor" "$1" "${2:-}" "wt doctor [options]"
                 project="$2"
                 shift 2
                 ;;
+            --json) json_output=1; shift ;;
             -h|--help)
                 show_doctor_help
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_doctor_help
-                return 1
+                die_unknown_option "doctor" "$1"
                 ;;
             *)
                 shift
@@ -33,23 +36,32 @@ cmd_doctor() {
         esac
     done
 
-    echo ""
-    echo -e "${BOLD}wt doctor${NC}"
-    echo "$(printf '%.0s-' {1..50})"
-    echo ""
+    if [[ "$json_output" -eq 1 ]]; then
+        json_begin
+        json_set ".project" null
+        json_set ".checks" arr
+    else
+        echo ""
+        echo -e "${BOLD}wt doctor${NC}"
+        echo "$(printf '%.0s-' {1..50})"
+        echo ""
+    fi
 
     # --- 1. Dependencies ---
-    echo -e "${BOLD}Dependencies${NC}"
+    _doctor_section "dependencies" "Dependencies"
 
     _doctor_check_cmd "git" "brew install git"
     _doctor_check_cmd "yq" "brew install yq"
     _doctor_check_cmd "tmux" "brew install tmux"
     _doctor_check_cmd "envsubst" "brew install gettext"
+    _doctor_check_optional_cmd "fzf" "brew install fzf"
+    _doctor_check_optional_cmd "jq" "brew install jq"
+    _doctor_check_optional_cmd "gh" "brew install gh"
 
-    echo ""
+    _doctor_echo ""
 
     # --- 2. Project config ---
-    echo -e "${BOLD}Project Configuration${NC}"
+    _doctor_section "project_configuration" "Project Configuration"
 
     # Resolve project (soft fail for doctor)
     if [[ -z "$project" ]]; then
@@ -58,9 +70,10 @@ cmd_doctor() {
 
     if [[ -z "$project" ]]; then
         _doctor_warn "Could not detect project (not in a git repo with wt config)"
-        echo ""
+        _doctor_echo ""
     else
         _doctor_pass "Project detected: $project"
+        [[ "$json_output" -eq 1 ]] && json_set ".project" str "$project"
 
         local config_file
         config_file=$(project_config_path "$project")
@@ -149,10 +162,10 @@ cmd_doctor() {
             _doctor_fail "Config file not found: $config_file"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 3. State consistency ---
-        echo -e "${BOLD}State Consistency${NC}"
+        _doctor_section "state_consistency" "State Consistency"
 
         local state_f
         state_f=$(state_file "$project")
@@ -170,7 +183,7 @@ cmd_doctor() {
                 entry_branch=$(yaml_get "$state_f" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
                 entry_ctx=$(_doctor_port_context "$state_f" "$sanitized_branch" "$entry_branch" "$config_file")
                 if [[ -n "$wt_path" ]] && [[ ! -d "$wt_path" ]]; then
-                    _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing)"
+                    _doctor_warn "Orphaned worktree state: $sanitized_branch (path $wt_path missing) — reclaimed by \`wt delete $entry_branch\` or by the next \`wt create\` that finds every slot taken"
                     orphaned=$((orphaned + 1))
                 elif [[ "$entry_ctx" == "none" ]]; then
                     _doctor_warn "Orphaned worktree state: $sanitized_branch (no slot or path recorded)"
@@ -208,16 +221,16 @@ cmd_doctor() {
             _doctor_warn "No state file found (no worktrees created yet?)"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 4. Worktree links ---
-        echo -e "${BOLD}Worktree Links${NC}"
+        _doctor_section "worktree_links" "Worktree Links"
         _doctor_check_links "$(expand_path "$(yaml_get "$config_file" ".repo_path" "")")"
 
-        echo ""
+        _doctor_echo ""
 
         # --- 5. Tmux health ---
-        echo -e "${BOLD}Tmux Health${NC}"
+        _doctor_section "tmux_health" "Tmux Health"
 
         if command_exists tmux; then
             if [[ -f "$config_file" ]]; then
@@ -247,10 +260,10 @@ cmd_doctor() {
             _doctor_fail "tmux is not installed"
         fi
 
-        echo ""
+        _doctor_echo ""
 
         # --- 5. Port conflicts ---
-        echo -e "${BOLD}Port Conflicts${NC}"
+        _doctor_section "port_conflicts" "Port Conflicts"
 
         if [[ -f "$config_file" ]]; then
             local all_ports=""
@@ -301,9 +314,17 @@ $svc_name@$sanitized_branch:$effective_port"
     fi
 
     # --- Summary ---
-    echo ""
-    echo "$(printf '%.0s-' {1..50})"
-    echo -e "${BOLD}Summary:${NC} ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC}, ${YELLOW}$warnings warnings${NC}"
+    if [[ "$json_output" -eq 1 ]]; then
+        json_set ".summary.passed" int "$passed"
+        json_set ".summary.failed" int "$failed"
+        json_set ".summary.warnings" int "$warnings"
+        json_set ".ok" bool "$([[ "$failed" -eq 0 ]] && echo true || echo false)"
+        json_emit
+    else
+        echo ""
+        echo "$(printf '%.0s-' {1..50})"
+        echo -e "${BOLD}Summary:${NC} ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC}, ${YELLOW}$warnings warnings${NC}"
+    fi
 
     if [[ "$failed" -gt 0 ]]; then
         return 1
@@ -311,19 +332,65 @@ $svc_name@$sanitized_branch:$effective_port"
     return 0
 }
 
-# Helper functions for doctor output
+# Append one row to the pending --json document's .checks array, under the
+# section the caller's section variable currently names.
+# Args: $1 section, $2 status (pass|fail|warn), $3 message
+# Side: json_set calls against .checks[check_idx]; increments check_idx
+_doctor_json_row() {
+    local sec="$1"
+    local status="$2"
+    local message="$3"
+    local base=".checks[$check_idx]"
+
+    json_set "${base}.section" str "$sec"
+    json_set "${base}.status" str "$status"
+    json_set "${base}.message" str "$message"
+    check_idx=$((check_idx + 1))
+}
+
+# Print a human-report line; prints nothing under --json. The report's only
+# echo point outside the check rows, so --json stdout stays the document alone.
+# Args: $@ echo -e arguments
+_doctor_echo() {
+    [[ "${json_output:-0}" -eq 1 ]] || echo -e "$@"
+}
+
+# Open one report section: name it for the --json rows that follow, and print
+# its header in the human report.
+# Args: $1 section key (e.g. dependencies), $2 human header
+# Side: sets cmd_doctor's section local
+_doctor_section() {
+    section="$1"
+    _doctor_echo "${BOLD}$2${NC}"
+}
+
+# Helper functions for doctor output — the single print point: in JSON mode
+# each appends a row instead of echoing (json_output/section/check_idx are the
+# caller's locals, visible here through cmd_doctor's own call stack).
 _doctor_pass() {
-    echo -e "  ${GREEN}PASS${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "pass" "$1"
+    else
+        echo -e "  ${GREEN}PASS${NC}  $1"
+    fi
     passed=$((passed + 1))
 }
 
 _doctor_fail() {
-    echo -e "  ${RED}FAIL${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "fail" "$1"
+    else
+        echo -e "  ${RED}FAIL${NC}  $1"
+    fi
     failed=$((failed + 1))
 }
 
 _doctor_warn() {
-    echo -e "  ${YELLOW}WARN${NC}  $1"
+    if [[ "${json_output:-0}" -eq 1 ]]; then
+        _doctor_json_row "$section" "warn" "$1"
+    else
+        echo -e "  ${YELLOW}WARN${NC}  $1"
+    fi
     warnings=$((warnings + 1))
 }
 
@@ -452,25 +519,66 @@ _doctor_check_cmd() {
     fi
 }
 
+# Report an optional tool (fzf, jq, gh) — present is a pass, missing is a warn, never a
+# fail: unlike _doctor_check_cmd's required tools, an optional one degrades one command's
+# feature rather than failing doctor's own exit code.
+# Args: $1 command, $2 install hint
+_doctor_check_optional_cmd() {
+    local cmd="$1"
+    local install_hint="$2"
+
+    if command_exists "$cmd"; then
+        _doctor_pass "$cmd (optional) available"
+    else
+        _doctor_warn "$cmd not found (optional: $install_hint)"
+    fi
+}
+
+# Print the 'wt doctor' help page to stdout.
 show_doctor_help() {
     cat << 'EOF'
+Runs six diagnostic checks against your wt setup and project configuration and prints a
+PASS/FAIL/WARN line per check plus a summary count. Reads state only: the state and slots
+files are left unchanged.
+
 Usage: wt doctor [options]
 
-Run diagnostic checks on your wt setup and project configuration.
-
 Checks performed:
-  1. Dependencies  - git, yq, tmux, envsubst (with versions)
-  2. Project config - YAML syntax, required fields, port ranges
-  3. State          - orphaned entries, stale PIDs
-  4. Tmux health    - session exists, windows match state
-  5. Port conflicts - duplicate assignments, range overlaps
+  1. Dependencies       - git, yq, tmux, envsubst (with versions); fzf, jq, gh as
+                          optional rows (warn, not fail, when missing)
+  2. Project Configuration - YAML syntax, required fields, port ranges
+  3. State Consistency  - orphaned worktree entries, stale service PIDs
+  4. Worktree Links     - each linked worktree's .git link is relative and resolves
+  5. Tmux Health        - session exists, windows match recorded state
+  6. Port Conflicts     - duplicate port assignments, range overlaps
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  --json                  Print one JSON document instead of PASS/FAIL/WARN lines (default: off)
+  -h, --help              Show this page
+
+Output (--json):
+  { project, checks: [ { section, status, message } ], summary: { passed,
+    failed, warnings }, ok }
+
+  project is the detected project name, or null. section is one of
+  dependencies, project_configuration, state_consistency, worktree_links,
+  tmux_health, port_conflicts. status is "pass", "fail" or "warn". ok is
+  true when failed == 0 — the same condition that decides the exit code
+  below, so --json exits the same way the PASS/FAIL/WARN form does.
 
 Examples:
   wt doctor
   wt doctor -p myproject
+  wt doctor --json
+
+Aliases: wt doc
+
+Exit codes:
+  0  no check failed; a warning (an orphaned worktree entry, a stale service PID)
+     does not fail the run
+  1  at least one check failed (bad config, missing repo_path, overlapping port
+     ranges, a broken worktree link, ...)
+  2  usage error: unknown option or missing option argument
 EOF
 }

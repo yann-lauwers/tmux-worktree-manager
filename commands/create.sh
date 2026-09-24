@@ -8,6 +8,9 @@
 #   wt create fix/my-bug --from staging   # Override base branch
 #   wt create NEX-1500 -p nexus     # Explicit project
 
+# Parse `wt create` arguments and delegate to _cmd_create_core.
+# Args: $1 branch-or-task (optional), plus flags
+# Side: exits 2 on a usage error; see _cmd_create_core for the rest
 cmd_create() {
     local input=""
     local project=""
@@ -20,12 +23,12 @@ cmd_create() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "create" "$1" "${2:-}"
                 project="$2"
                 shift 2
                 ;;
             --from)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "create" "$1" "${2:-}"
                 from_branch="$2"
                 shift 2
                 ;;
@@ -34,7 +37,7 @@ cmd_create() {
                 shift
                 ;;
             --skip-groups)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "create" "$1" "${2:-}"
                 skip_groups="$2"
                 shift 2
                 ;;
@@ -47,12 +50,12 @@ cmd_create() {
                 shift
                 ;;
             --db-from)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "create" "$1" "${2:-}"
                 db_from="$2"
                 shift 2
                 ;;
             --stack-on)
-                [[ -z "${2:-}" ]] && { log_error "Option $1 requires an argument"; return 1; }
+                require_optarg "create" "$1" "${2:-}"
                 from_branch="$2"
                 db_from="$2"
                 shift 2
@@ -62,7 +65,7 @@ cmd_create() {
                 return 0
                 ;;
             -*)
-                die "Unknown option: $1"
+                die_unknown_option "create" "$1"
                 ;;
             *)
                 input="$1"
@@ -159,7 +162,7 @@ cmd_create() {
     if [[ "$has_db_steps" == "true" ]] && [[ -z "$no_db" ]] && [[ "$no_setup" -eq 0 ]]; then
         # Interactive prompt
         local reply
-        printf "${BOLD}Spin up ephemeral DB?${NC} [Y/n] "
+        printf '%b' "${BOLD}Spin up ephemeral DB?${NC} [Y/n] "
         read -r reply </dev/tty
         reply="${reply:-y}"
         if [[ "$reply" =~ ^[Nn] ]]; then
@@ -184,34 +187,43 @@ cmd_create() {
     _cmd_create_core "$branch" "$base_branch" "$project" "$no_setup" "$skip_groups"
 }
 
+# Print the `wt create` / `wt c` help page.
 show_create_help() {
     cat << 'EOF'
+Creates a worktree, its git branch, a port slot, and runs its setup steps.
+
+The input decides the branch: a Linear task ID fetches its title and generates a
+branch, a plain branch name is used as-is, and no input creates a scratch/<timestamp>
+branch.
+
 Usage: wt create [<branch-or-task>] [options]
 
-Create a new worktree. Smart and Linear-aware:
-  - Linear ID (e.g. NEX-1500) → fetches title, generates branch
-  - Plain branch name (e.g. fix/my-bug) → uses it as-is
-  - No argument → scratch worktree with timestamp
+Arguments:
+  <branch-or-task>  Linear ID, plain branch name, or omitted for a scratch worktree
 
 Aliases: wt c
 
 Options:
-  --from <branch>    Base branch (default: project base_branch)
-  --no-setup         Skip setup steps, except those marked `always: true`
-  --skip-groups <g>  Skip setup groups (comma-separated)
-  --no-db            Skip ephemeral DB setup
-  --db               Force ephemeral DB setup (no prompt)
-  --db-from <branch> Share <branch>'s ephemeral DB instead of spinning one (implies --no-db)
-  --stack-on <branch> Stacked PR shortcut: --from <branch> + --db-from <branch>
-  -p, --project      Explicit project name
-  -h, --help         Show this help message
+  --from <branch>       Base branch to create from (default: the project's base_branch)
+  --no-setup             Skip setup steps except those marked `always: true` (default: off)
+  --skip-groups <g>      Skip setup groups, comma-separated (default: none skipped)
+  --no-db                Skip ephemeral DB setup (default: off — prompts when the project has db
+                         steps)
+  --db                   Force ephemeral DB setup with no prompt (default: off)
+  --db-from <branch>     Share <branch>'s ephemeral DB instead of spinning one; implies --no-db
+                         (default: spin its own)
+  --stack-on <branch>    Shortcut for --from <branch> --db-from <branch> (default: not stacked)
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help             Show this page
+
+Writes state and slots: it creates the worktree's state entry and claims a
+port slot. When every slot is taken, it first reclaims the slots of stale
+entries — worktrees whose directory is missing — then retries once before
+failing.
 
 Examples:
   wt create NEX-1500
-  wt create fix/my-bug
-  wt create
   wt create fix/my-bug --from staging
-  wt create NEX-1500 -p nexus --no-db
   wt create NEX-2544 --stack-on nex-2543/foo   # stack: branch + DB from nex-2543/foo
 
 Linear API key lookup (first found wins):
@@ -219,7 +231,38 @@ Linear API key lookup (first found wins):
   2. ~/.config/wt/config.yaml -> linear.api_key
   3. <repo>/me/config.json -> apiKeys.linear
   4. ~/.claude/me/config.json -> apiKeys.linear
+
+Exit codes:
+  0  success
+  1  no project detected, no available slot, or worktree creation failed
+  2  usage error: unknown option or missing argument
 EOF
+}
+
+# Claim a slot for a new worktree, reclaiming stale entries only on exhaustion:
+# a free slot short-circuits, so a worktree whose directory is only missing for
+# now keeps its slot until one is actually needed.
+# Args: $1 project, $2 branch, $3 max_slots, $4 port_base, $5 services_per_slot
+# Out: the claimed slot number
+# Side: on exhaustion, releases stale slots and deletes their state entries
+claim_slot_reclaiming() {
+    local project="$1"
+    local branch="$2"
+    local max_slots="$3"
+    local port_base="$4"
+    local services_per_slot="$5"
+
+    local slot
+    if slot=$(claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot"); then
+        echo "$slot"
+        return 0
+    fi
+
+    local reclaimed
+    reclaimed=$(reclaim_stale_worktrees "$project")
+    [[ "$reclaimed" -gt 0 ]] || return 1
+
+    claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot"
 }
 
 # Internal worker — runs `git worktree add`, slot allocation, setup, tmux session.
@@ -271,6 +314,7 @@ _cmd_create_core() {
     local _create_cleanup_slot=""
     local _create_cleanup_wt_path=""
 
+    # shellcheck disable=SC2329 # invoked indirectly via `trap _create_cleanup INT TERM` below
     _create_cleanup() {
         if [[ -n "$_create_cleanup_slot" ]]; then
             log_warn "Interrupted — cleaning up partial state..."
@@ -289,9 +333,10 @@ _cmd_create_core() {
     services_per_slot=$(yq -r '.ports.reserved.services // {} | length' "$PROJECT_CONFIG_FILE" 2>/dev/null)
     [[ -z "$services_per_slot" || "$services_per_slot" == "0" ]] && services_per_slot=2
 
-    # Claim a slot for reserved ports (checks system port availability)
+    # Claim a slot for reserved ports (checks system port availability); on
+    # exhaustion, reclaims stale entries of this project and retries once.
     local slot
-    if ! slot=$(claim_slot "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot"); then
+    if ! slot=$(claim_slot_reclaiming "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot"); then
         die "No available slots. Maximum $PROJECT_RESERVED_SLOTS concurrent worktrees with reserved ports, or all slots have ports in use. Stop or delete an existing worktree, or free the conflicting ports."
     fi
     _create_cleanup_project="$project"

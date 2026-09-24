@@ -1,37 +1,113 @@
 #!/bin/bash
 # lib/utils.sh - Logging, colors, and common utilities
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m' # No Color
+# The raw escape codes behind every color variable. wt_color_init assigns
+# these (or '') to the stdout names below and to their E_-prefixed stderr
+# twins, decided independently per stream — never referenced directly outside
+# this block.
+_WT_ESC_RED='\033[0;31m'
+_WT_ESC_GREEN='\033[0;32m'
+_WT_ESC_YELLOW='\033[0;33m'
+_WT_ESC_BLUE='\033[0;34m'
+_WT_ESC_MAGENTA='\033[0;35m'
+_WT_ESC_CYAN='\033[0;36m'
+_WT_ESC_BOLD='\033[1m'
+_WT_ESC_DIM='\033[2m'
+_WT_ESC_NC='\033[0m' # No Color
+
+# OSC 8 hyperlink open/close, as real ESC bytes (not \033 text) — consumed
+# through %s to build a link_start/link_end pair, unlike the %b-driven colors
+# above.
+_WT_OSC8_OPEN=$'\e]8;;'
+_WT_OSC8_ST=$'\e\\'
+
+# Decide whether one stream gets colour. WT_COLOR=always wins outright —
+# including over a piped stream. Failing that, a non-empty NO_COLOR (an empty
+# NO_COLOR= counts as unset, per no-color.org) turns colour off regardless of
+# the terminal. Failing that, the stream's own tty test decides. Pure: reads
+# only WT_COLOR/NO_COLOR, so the same decision is reproducible from a test
+# with no real terminal in play. Answers by exit status, so the caller forks
+# no subshell to read it.
+# Args: $1 is_tty (1 when that stream is a terminal, 0 otherwise)
+# Out: exit 0 (colour on) or 1 (colour off)
+_wt_color_decide() {
+    if [[ "${WT_COLOR:-}" == "always" ]]; then
+        return 0
+    elif [[ -n "${NO_COLOR:-}" ]]; then
+        return 1
+    fi
+    [[ "$1" == "1" ]]
+}
+
+# Decide colour for stdout and stderr independently — a piped stdout with a
+# terminal stderr (or the reverse) gets colour on one stream only — then
+# assign every color variable this file exports: the plain names
+# (RED/GREEN/.../NC) for stdout call sites, the E_-prefixed twins
+# (E_RED/E_GREEN/.../E_NC) for stderr call sites, log_* included. Called once
+# at the bottom of this block so every sourcer (wt.sh, and a bats load_lib
+# "utils") gets it; safe to call again — tests re-call it after exporting
+# WT_COLOR/NO_COLOR to redecide.
+# Side: sets _WT_COLOR_OUT, _WT_COLOR_ERR, and every color variable above
+wt_color_init() {
+    local out_tty=0 err_tty=0 name esc
+    [[ -t 1 ]] && out_tty=1
+    [[ -t 2 ]] && err_tty=1
+
+    _WT_COLOR_OUT=0; _wt_color_decide "$out_tty" && _WT_COLOR_OUT=1
+    _WT_COLOR_ERR=0; _wt_color_decide "$err_tty" && _WT_COLOR_ERR=1
+
+    for name in RED GREEN YELLOW BLUE MAGENTA CYAN BOLD DIM NC; do
+        esc="_WT_ESC_$name"
+        if [[ "$_WT_COLOR_OUT" == "1" ]]; then printf -v "$name" '%s' "${!esc}"; else printf -v "$name" '%s' ''; fi
+        if [[ "$_WT_COLOR_ERR" == "1" ]]; then printf -v "E_$name" '%s' "${!esc}"; else printf -v "E_$name" '%s' ''; fi
+    done
+}
+
+wt_color_init
 
 # Logging functions - all output to stderr to not interfere with function return values
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $*" >&2
+    echo -e "${E_BLUE}[INFO]${E_NC} $*" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*" >&2
+    echo -e "${E_GREEN}[SUCCESS]${E_NC} $*" >&2
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $*" >&2
+    echo -e "${E_YELLOW}[WARN]${E_NC} $*" >&2
 }
 
+# Log an error, prefixed with the command word main() resolved — "wt <cmd>: " —
+# or plain "wt: " when no command was resolved (WT_CMD_NAME unset, e.g. a
+# failure inside main() itself before dispatch).
+# Side: writes to stderr; reads WT_CMD_NAME
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
+    echo -e "${E_RED}wt${WT_CMD_NAME:+ $WT_CMD_NAME}:${E_NC} $*" >&2
+}
+
+# Note, once per tool per process, that an optional tool is missing at the point its absence
+# changes what the current command does — never at startup, which would print it whether or
+# not the missing tool's feature is ever reached this run. Silenced by WT_WARN_DEPS=false, the
+# same override main() used to gate the old blanket dependency block. bash 3.2 ships no
+# associative arrays, so the once-per-tool guard is an indirect variable named after the tool.
+# Args: $1 tool, $2 what degrades without it
+# Side: writes one stderr line per distinct $1 per process, unless WT_WARN_DEPS=false
+note_optional_missing() {
+    local tool="$1"
+    local degrades="$2"
+    local flag_var="_WT_NOTED_MISSING_${tool//[^a-zA-Z0-9]/_}"
+
+    [[ "${WT_WARN_DEPS:-true}" == "false" ]] && return 0
+    [[ -n "${!flag_var:-}" ]] && return 0
+    printf -v "$flag_var" '1'
+
+    log_warn "$tool not installed — $degrades (brew install $tool)"
 }
 
 log_debug() {
     if [[ "${WT_DEBUG:-}" == "1" ]]; then
-        echo -e "${DIM}[DEBUG]${NC} $*" >&2
+        echo -e "${E_DIM}[DEBUG]${E_NC} $*" >&2
     fi
 }
 
@@ -39,7 +115,7 @@ log_step() {
     local current="$1"
     local total="$2"
     local message="$3"
-    echo -e "${CYAN}[$current/$total]${NC} $message" >&2
+    echo -e "${E_CYAN}[$current/$total]${E_NC} $message" >&2
 }
 
 # Spinner for long-running operations
@@ -57,10 +133,70 @@ spinner() {
     printf "\r"
 }
 
-# Die with error message
+# Die with an error message, prefixed per log_error's WT_CMD_NAME rule.
+# Side: writes to stderr (via log_error), exits 1
 die() {
     log_error "$@"
     exit 1
+}
+
+# Die with the standard usage-error line for a command or subcommand, on stderr,
+# plain (no color, unlike log_error — a usage error is parsed by scripts and by
+# the surface test, so its wording is exact and never routed through the color codes).
+# Args: $1 cmd-words (e.g. "attach", "db reset"), $2 detail, $3 accepted form (optional)
+# Side: writes to stderr, exits 2
+die_usage() {
+    local cmd_words="$1"
+    local detail="$2"
+    local form="${3:-}"
+
+    printf "wt %s: %s \xe2\x80\x94 see 'wt %s --help'\n" "$cmd_words" "$detail" "$cmd_words" >&2
+    if [[ -n "$form" ]]; then
+        printf 'usage: %s\n' "$form" >&2
+    fi
+    exit 2
+}
+
+# Die with the standard unknown-option line for a command or subcommand.
+# Args: $1 cmd-words, $2 the rejected flag, $3 hint naming the flag to use instead (optional)
+# Side: writes to stderr, exits 2 (via die_usage)
+die_unknown_option() {
+    local detail="unknown option '$2'"
+    [[ -n "${3:-}" ]] && detail="$detail — $3"
+    die_usage "$1" "$detail"
+}
+
+# The listing command every not-found message below points a reader at.
+WT_LISTING_CMD="wt ls"
+
+# Die with the standard unknown-branch line for a command whose target branch
+# has no worktree in the given project — one wording shared by every command
+# that resolves a branch, so a caller (human or script) matches one string.
+# Args: $1 cmd-words (e.g. "status", "ports set", "db use-remote"), $2 branch, $3 project
+# Side: writes to stderr, plain (no colour), exits 1
+die_no_worktree() {
+    local cmd_words="$1"
+    local branch="$2"
+    local project="$3"
+
+    printf "wt %s: no worktree for branch '%s' in project %s \xe2\x80\x94 branch names are matched in full; '%s' shows them\n" \
+        "$cmd_words" "$branch" "$project" "$WT_LISTING_CMD" >&2
+    exit 1
+}
+
+# Die with the standard missing-argument line when a flag's value is empty —
+# a no-op when the value is non-empty, so a caller runs it unconditionally
+# instead of guarding it behind its own `[[ -z ]]` check.
+# Args: $1 cmd-words, $2 the flag, $3 the value as read (may be empty/unset), $4 accepted form (optional)
+# Side: writes to stderr, exits 2 (via die_usage) when $3 is empty
+require_optarg() {
+    local cmd_words="$1"
+    local flag="$2"
+    local value="$3"
+    local form="${4:-}"
+
+    [[ -z "$value" ]] && die_usage "$cmd_words" "option $flag requires an argument" "$form"
+    return 0
 }
 
 # Check if command exists
@@ -134,6 +270,13 @@ remote_branch_exists() {
     git -C "$repo_root" ls-remote --exit-code --heads "$remote" "$branch" &>/dev/null
 }
 
+# Report whether stdin is a terminal — the seam a test overrides to drive a
+# command's interactive path without a real tty attached.
+# Out: exit 0 (stdin is a terminal) or 1 (it is not — piped, redirected, /dev/null)
+stdin_is_tty() {
+    [[ -t 0 ]]
+}
+
 # Confirm action with user
 confirm() {
     local message="${1:-Are you sure?}"
@@ -197,6 +340,19 @@ with_file_lock() {
     "$@" || rc=$?
     rm -rf "$lock_dir"
     return $rc
+}
+
+# Export VARNAME to a command's stdout, or to whatever a failed substitution captured with
+# its exit status forced to 0 — matching `export VAR="$(cmd)"`, whose own status is the
+# assignment's, so a failing cmd was already masked before this helper existed.
+# Args: $1 VARNAME, $2.. cmd and its args
+# Side: exports $1 in the caller's shell
+export_or_empty() {
+    local __eoe_varname="$1"
+    shift
+    local __eoe_value
+    __eoe_value="$("$@")" || true
+    export "${__eoe_varname}=${__eoe_value}"
 }
 
 # Check if port is in use

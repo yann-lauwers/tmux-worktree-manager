@@ -1,6 +1,9 @@
 #!/bin/bash
 # commands/panes.sh - List panes for a worktree window
 
+# List tmux panes for a worktree's window with resolved service/command labels.
+# Args: none (reads -p/--project and [branch] from argv)
+# Side: dies (exit 1) when no matching tmux session or window exists
 cmd_panes() {
     local branch=""
     local project=""
@@ -10,10 +13,7 @@ cmd_panes() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--project)
-                if [[ -z "${2:-}" ]]; then
-                    log_error "Option $1 requires an argument"
-                    return 1
-                fi
+                require_optarg "panes" "$1" "${2:-}" "wt panes [branch] [options]"
                 project="$2"
                 shift 2
                 ;;
@@ -22,9 +22,7 @@ cmd_panes() {
                 return 0
                 ;;
             -*)
-                log_error "Unknown option: $1"
-                show_panes_help
-                return 1
+                die_unknown_option "panes" "$1"
                 ;;
             *)
                 positionals+=("$1")
@@ -42,9 +40,7 @@ cmd_panes() {
     elif [[ ${#positionals[@]} -gt 0 ]]; then
         branch="${positionals[0]}"
     else
-        log_error "Branch name is required (not in a worktree)"
-        show_panes_help
-        return 1
+        die_usage "panes" "branch name is required (not in a worktree)" "wt panes <branch> [options]"
     fi
 
     project=$(require_project "$project")
@@ -112,23 +108,30 @@ cmd_panes() {
     echo ""
 }
 
+# Print the 'wt panes' help page to stdout.
 show_panes_help() {
     cat << 'EOF'
+Lists the tmux panes for a worktree's window, one row per pane naming its resolved service or
+command, whether it is active, and its size.
+
 Usage: wt panes [branch] [options]
        wt panes [options]  (inside worktree)
 
-List tmux panes for a worktree window with service/command info.
-
 Arguments:
-  <branch>          Branch name (auto-detected inside worktree)
+  <branch>          Full branch name (auto-detected inside a worktree)
 
 Options:
-  -p, --project     Project name (auto-detected if not specified)
-  -h, --help        Show this help message
+  -p, --project <name>   Project to act on (default: detected from the current directory)
+  -h, --help              Show this page
 
 Examples:
   wt panes feature/auth
   wt panes                    # Inside worktree
   wt panes -p myproject
+
+Exit codes:
+  0  panes printed
+  1  no matching tmux session or window
+  2  usage error: unknown option, missing option argument, or missing branch
 EOF
 }
