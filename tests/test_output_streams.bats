@@ -293,7 +293,7 @@ services: []"
     local home_dir="$TEST_TMPDIR/home-e2e1"
     local outside_dir="$TEST_TMPDIR/not-a-repo"
     mkdir -p "$home_dir" "$outside_dir"
-    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
         bash -c "cd '$outside_dir' && '$WT_SCRIPT_DIR/wt.sh' c"
     [[ "$status" -eq 1 ]]
     [[ "$stderr" == "wt create: Not in a git repo with wt config. Run: wt init" ]]
@@ -303,7 +303,7 @@ services: []"
     local home_dir="$TEST_TMPDIR/home-e2e2"
     local outside_dir="$TEST_TMPDIR/not-a-repo-init"
     mkdir -p "$home_dir" "$outside_dir"
-    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
         bash -c "cd '$outside_dir' && '$WT_SCRIPT_DIR/wt.sh' init"
     [[ "$status" -eq 1 ]]
     [[ "$stderr" == "wt init: Not in a git repository. Navigate to a git repo first." ]]
@@ -313,7 +313,7 @@ services: []"
     local home_dir="$TEST_TMPDIR/home-e2e3"
     _create_test_config "testproj"
     mkdir -p "$home_dir"
-    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" \
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
         "$WT_SCRIPT_DIR/wt.sh" o -p testproj nope
     [[ "$status" -eq 1 ]]
     [[ "$stderr" == "wt open: No worktree matching 'nope'. Run: wt ls" ]]
