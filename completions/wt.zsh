@@ -63,6 +63,12 @@ _wt() {
         'resolve:Rebase or merge a conflicting PR onto its base'
     )
 
+    local -a ports_subcommands
+    ports_subcommands=(
+        'set:Override this worktree'"'"'s port for one service'
+        'clear:Remove a service'"'"'s port override'
+    )
+
     # Function to get worktree branches
     _wt_worktrees() {
         worktrees=(${(f)"$(git worktree list --porcelain 2>/dev/null | grep '^branch' | sed 's|branch refs/heads/||')"})
@@ -112,6 +118,19 @@ _wt() {
     _wt_pr_first_arg() {
         _alternative \
             'subcommands:pr subcommand:_wt_pr_subcommands' \
+            'branches:branch:_wt_worktrees'
+    }
+
+    # Function to complete `wt ports`'s subcommand words
+    _wt_ports_subcommands() {
+        _describe 'ports subcommand' ports_subcommands
+    }
+
+    # Function to complete `wt ports`'s first word: a subcommand or a branch —
+    # `wt ports [branch]` also accepts a worktree, same as `wt pr`.
+    _wt_ports_first_arg() {
+        _alternative \
+            'subcommands:ports subcommand:_wt_ports_subcommands' \
             'branches:branch:_wt_worktrees'
     }
 
@@ -253,7 +272,7 @@ _wt() {
                         '--json[Output as JSON]' \
                         '(-p --project)'{-p,--project}'[Project name]:project:_wt_projects' \
                         '(-h --help)'{-h,--help}'[Show help]' \
-                        '1:subcommand or worktree:(set clear)'
+                        '1: :_wt_ports_first_arg'
                     ;;
                 send|s)
                     _arguments \

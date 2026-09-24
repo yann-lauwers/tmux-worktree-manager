@@ -5,9 +5,10 @@
 # every subcommand named, and an Exit codes block. Never a hand-kept list — a
 # command, subcommand or flag added to wt.sh/commands/*.sh with no page fails
 # `wt_surface_check` by name. It also checks README.md's command tables and
-# both shell completion scripts against the same top-level-command discovery
+# both shell completion scripts against the same discovery
 # (`wt_surface_docs_check`) — a command added to main()'s dispatch with no
-# README row, or missing from either completion, fails by name.
+# README row fails by name, and so does a command or subcommand, alias
+# included, missing from either completion.
 #
 # Discovery reads `declare -f` output, which bash normalises so every case arm
 # header is its own line ("tok1 | tok2)") and every arm ends with a lone ";;"
@@ -737,10 +738,12 @@ wt_surface_check() {
 
 # ─── README and completions checks ─────────────────────────────────────────
 #
-# Scoped to top-level commands only — the words main()'s own dispatch case
-# routes (_wt_build_units COMMAND rows) — never a SUBCOMMAND row. A word
-# routed by a command's own internal case (wt db reset, wt pr conflicts) is
-# out of this contract's scope; only main()'s second case is.
+# README's command tables are checked against top-level commands only — the
+# words main()'s own dispatch case routes (_wt_build_units COMMAND rows).
+# Both completion scripts are checked against every word main() or a
+# command's own internal case routes — COMMAND rows and SUBCOMMAND rows
+# alike, aliases included, so `wt pr conflicts`/`wt pr c` and `wt db reset`
+# carry the same completion contract as `wt doctor`.
 
 # Extract the markdown under README's "## Commands" heading, up to the next
 # "## " heading — the region wt_surface_docs_check's README check reads.
@@ -781,13 +784,7 @@ _wt_docs_bash_commands() {
 # Args: $1 root
 # Out: one `'<word>:<desc>'` entry per line, as written in the array
 _wt_docs_zsh_commands_block() {
-    local root="$1"
-    [[ -f "$root/completions/wt.zsh" ]] || return 0
-    awk '
-        /^[[:space:]]*commands=\(/ { insec=1; next }
-        insec && /^[[:space:]]*\)/ { exit }
-        insec { print }
-    ' "$root/completions/wt.zsh"
+    _wt_docs_zsh_named_array_block "$1" commands
 }
 
 # True when a word is present as one array entry's own leading token
@@ -801,10 +798,60 @@ _wt_docs_zsh_block_has_word() {
     [[ $'\n'"$block" =~ $re ]]
 }
 
-# Check every top-level command discovered from source (COMMAND rows only —
-# never a SUBCOMMAND row main()'s own case does not route) against README's
-# command tables and both completion scripts. Prints one line per violation,
-# returns non-zero when any were printed.
+# Drive completions/wt.bash's own dispatcher for one parent command's
+# subcommand position and return what it offers, one candidate per line —
+# the bash-completion machinery is never simulated by reading the source
+# text, since a word sitting in a case pattern (e.g. "conflicts|c)") cannot
+# pass this check for one the user is actually offered at the prompt. Run in
+# a subshell so the sourced script's functions and COMPREPLY never leak into
+# the caller; `cd`'d into a directory with no git repo above it and
+# GIT_DIR=/dev/null on top, so a worktree-listing candidate never sneaks a
+# real branch name into the reply. Bash 3.2-safe: no associative array
+# caches this — the caller computes it once per parent and reuses it across
+# that parent's subcommand words.
+# Args: $1 root, $2 parent canonical word
+# Out: COMPREPLY entries, one per line (empty when the file or arm offers none)
+_wt_docs_bash_subwords_for() {
+    local root="$1" parent="$2"
+    [[ -f "$root/completions/wt.bash" ]] || return 0
+    local tmp_cd
+    tmp_cd=$(mktemp -d)
+    (
+        cd "$tmp_cd" || exit 1
+        export GIT_DIR=/dev/null
+        _init_completion() { return 0; }
+        # shellcheck disable=SC1090
+        source "$root/completions/wt.bash" >/dev/null 2>&1
+        COMP_WORDS=(wt "$parent" "")
+        COMP_CWORD=2
+        COMP_LINE="wt $parent "
+        COMP_POINT=${#COMP_LINE}
+        _wt_completions || true
+        printf '%s\n' "${COMPREPLY[@]}"
+    )
+    rm -rf "$tmp_cd"
+}
+
+# Extract a named zsh array block ("<name>=( ... )") from wt.zsh — the
+# subcommand-listing arrays a command with subcommands declares
+# (db_subcommands, pr_subcommands, ports_subcommands, ...), so a word check
+# never special-cases which command it belongs to.
+# Args: $1 root, $2 array name
+# Out: that block's entries text (empty when the file or array is absent)
+_wt_docs_zsh_named_array_block() {
+    local root="$1" name="$2"
+    [[ -f "$root/completions/wt.zsh" ]] || return 0
+    awk -v name="$name" '
+        $0 ~ "^[[:space:]]*" name "=\\(" { insec=1; next }
+        insec && /^[[:space:]]*\)/ { exit }
+        insec { print }
+    ' "$root/completions/wt.zsh"
+}
+
+# Check every command and subcommand discovered from source against
+# README's command tables (COMMAND rows only) and both completion scripts
+# (COMMAND and SUBCOMMAND rows alike, aliases included). Prints one line per
+# violation, returns non-zero when any were printed.
 # Args: $1 root
 # Out: nothing but VIOLATION lines; return 0 clean, 1 any violation printed
 wt_surface_docs_check() {
@@ -826,32 +873,70 @@ wt_surface_docs_check() {
     bash_commands=$(_wt_docs_bash_commands "$root")
     zsh_block=$(_wt_docs_zsh_commands_block "$root")
 
+    # What each completion offers at one parent's subcommand position —
+    # wt.bash's COMPREPLY (newline-framed for an in-shell membership test)
+    # and wt.zsh's <parent>_subcommands block. Driving wt.bash costs a
+    # subshell and a source, so both are read once per parent: discovery
+    # emits a parent's SUBCOMMAND rows consecutively.
+    local sub_parent="" bash_subwords="" zsh_sub_block=""
+
     local unit
     for unit in "${units[@]}"; do
         local u_kind u_invoke u_display u_flags u_subwords
         IFS='|' read -r u_kind u_invoke u_display u_flags u_subwords <<< "$unit"
-        [[ "$u_kind" != "COMMAND" ]] && continue
 
-        local -a all_words=()
-        IFS=',' read -ra all_words <<< "$u_display"
-        local canonical="${all_words[0]}"
+        if [[ "$u_kind" == "COMMAND" ]]; then
+            local -a all_words=()
+            IFS=',' read -ra all_words <<< "$u_display"
+            local canonical="${all_words[0]}"
 
-        if ! _wt_docs_readme_has_command "$readme_section" "$canonical"; then
-            echo "VIOLATION ${canonical}: not in README.md's command tables"
-            violation_count=$((violation_count + 1))
+            if ! _wt_docs_readme_has_command "$readme_section" "$canonical"; then
+                echo "VIOLATION ${canonical}: not in README.md's command tables"
+                violation_count=$((violation_count + 1))
+            fi
+
+            local word
+            for word in "${all_words[@]}"; do
+                if [[ " $bash_commands " != *" $word "* ]]; then
+                    echo "VIOLATION ${word}: not offered by completions/wt.bash"
+                    violation_count=$((violation_count + 1))
+                fi
+                if ! _wt_docs_zsh_block_has_word "$zsh_block" "$word"; then
+                    echo "VIOLATION ${word}: not offered by completions/wt.zsh"
+                    violation_count=$((violation_count + 1))
+                fi
+            done
+            continue
         fi
 
-        local word
-        for word in "${all_words[@]}"; do
-            if [[ " $bash_commands " != *" $word "* ]]; then
-                echo "VIOLATION ${word}: not offered by completions/wt.bash"
-                violation_count=$((violation_count + 1))
+        if [[ "$u_kind" == "SUBCOMMAND" ]]; then
+            # The parent field carries the parent's own aliases ("pr" today,
+            # "x,y" for an aliased parent); completion is keyed on its
+            # canonical word, and so is the zsh array's name.
+            local parent_tokens="${u_display%% *}"
+            local parent_word="${parent_tokens%%,*}"
+            local sub_words_csv="${u_display#* }"
+            local -a sub_words=()
+            IFS=',' read -ra sub_words <<< "$sub_words_csv"
+
+            if [[ "$parent_word" != "$sub_parent" ]]; then
+                bash_subwords=$'\n'"$(_wt_docs_bash_subwords_for "$root" "$parent_word")"$'\n'
+                zsh_sub_block=$(_wt_docs_zsh_named_array_block "$root" "${parent_word//-/_}_subcommands")
+                sub_parent="$parent_word"
             fi
-            if ! _wt_docs_zsh_block_has_word "$zsh_block" "$word"; then
-                echo "VIOLATION ${word}: not offered by completions/wt.zsh"
-                violation_count=$((violation_count + 1))
-            fi
-        done
+
+            local sub_word
+            for sub_word in "${sub_words[@]}"; do
+                if [[ "$bash_subwords" != *$'\n'"$sub_word"$'\n'* ]]; then
+                    echo "VIOLATION ${parent_word} ${sub_word}: not offered by completions/wt.bash"
+                    violation_count=$((violation_count + 1))
+                fi
+                if ! _wt_docs_zsh_block_has_word "$zsh_sub_block" "$sub_word"; then
+                    echo "VIOLATION ${parent_word} ${sub_word}: not offered by completions/wt.zsh"
+                    violation_count=$((violation_count + 1))
+                fi
+            done
+        fi
     done
 
     if [[ $violation_count -gt 0 ]]; then

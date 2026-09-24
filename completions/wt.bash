@@ -142,7 +142,7 @@ _wt_completions() {
                     else
                         local worktrees
                         worktrees=$(git worktree list --porcelain 2>/dev/null | grep "^branch" | sed 's|branch refs/heads/||')
-                        _wt_compreply_from "conflicts resolve $worktrees" "$cur"
+                        _wt_compreply_from "conflicts c resolve $worktrees" "$cur"
                     fi
                     ;;
             esac

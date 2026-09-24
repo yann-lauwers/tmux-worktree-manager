@@ -142,6 +142,48 @@ services: []"
     [[ $? -eq 0 ]]
 }
 
+# ===== log_error / die: the "wt <command>: " prefix (C7, C8, C9, C10) =====
+
+@test "log_error with WT_CMD_NAME set prints 'wt <cmd>: <message>' (C8)" {
+    WT_CMD_NAME="status" run --separate-stderr log_error "boom"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt status: boom" ]]
+}
+
+@test "log_error with WT_CMD_NAME unset prints 'wt: <message>' (C8)" {
+    unset WT_CMD_NAME
+    run --separate-stderr log_error "boom"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt: boom" ]]
+}
+
+@test "die with WT_CMD_NAME set exits 1, writes only to stderr, with the command prefix (C7)" {
+    WT_CMD_NAME="doctor" run --separate-stderr die "not good"
+    [[ "$status" -eq 1 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt doctor: not good" ]]
+}
+
+@test "die with WT_COLOR=always wraps only the prefix in the red escape (C9)" {
+    run --separate-stderr bash -c '
+        source "'"$WT_SCRIPT_DIR"'/lib/utils.sh"
+        export WT_COLOR=always
+        wt_color_init
+        WT_CMD_NAME="status" die "boom"
+    '
+    [[ "$status" -eq 1 ]]
+    [[ "$stderr" == $'\033[0;31mwt status:\033[0m boom' ]]
+}
+
+@test "log_warn keeps its [WARN] prefix and takes no command prefix (T3)" {
+    WT_CMD_NAME="status" run --separate-stderr log_warn "careful"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "[WARN] careful" ]]
+}
+
 # ===== die_no_worktree: the one shared message =====
 
 @test "die_no_worktree writes the exact message to stderr, nothing to stdout, exit 1" {
@@ -240,6 +282,41 @@ services: []"
     [[ "$status" -eq 1 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt db use-remote: no worktree for branch 'nope' in project testproj — branch names are matched in full; 'wt ls' shows them" ]]
+}
+
+# ===== end-to-end: die/log_error through wt.sh carry "wt <canonical command>: " (T2) =====
+#
+# Isolated HOME/XDG per the C1-style invocations above, so each hits real
+# config resolution rather than the sourced-function fixtures further up.
+
+@test "wt.sh c (alias) with no project dies as 'wt create: ...' (T2)" {
+    local home_dir="$TEST_TMPDIR/home-e2e1"
+    local outside_dir="$TEST_TMPDIR/not-a-repo"
+    mkdir -p "$home_dir" "$outside_dir"
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
+        bash -c "cd '$outside_dir' && '$WT_SCRIPT_DIR/wt.sh' c"
+    [[ "$status" -eq 1 ]]
+    [[ "$stderr" == "wt create: Not in a git repo with wt config. Run: wt init" ]]
+}
+
+@test "wt.sh init outside a git repo dies as 'wt init: ...' (T2)" {
+    local home_dir="$TEST_TMPDIR/home-e2e2"
+    local outside_dir="$TEST_TMPDIR/not-a-repo-init"
+    mkdir -p "$home_dir" "$outside_dir"
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
+        bash -c "cd '$outside_dir' && '$WT_SCRIPT_DIR/wt.sh' init"
+    [[ "$status" -eq 1 ]]
+    [[ "$stderr" == "wt init: Not in a git repository. Navigate to a git repo first." ]]
+}
+
+@test "wt.sh o (alias) with no matching worktree dies as 'wt open: ...' (T2)" {
+    local home_dir="$TEST_TMPDIR/home-e2e3"
+    _create_test_config "testproj"
+    mkdir -p "$home_dir"
+    run --separate-stderr env HOME="$home_dir" WT_CONFIG_DIR="$WT_CONFIG_DIR" WT_DATA_DIR="$WT_DATA_DIR" WT_WARN_DEPS=false \
+        "$WT_SCRIPT_DIR/wt.sh" o -p testproj nope
+    [[ "$status" -eq 1 ]]
+    [[ "$stderr" == "wt open: No worktree matching 'nope'. Run: wt ls" ]]
 }
 
 # ===== C9: one shared function writes the message =====
@@ -408,6 +485,73 @@ _wt_ls_home() {
     fi
 
     [[ "$raw" == *$'\e'* ]]
+}
+
+# ===== every main() dispatch arm names the right command in its errors =====
+#
+# main()'s dispatch case sets WT_CMD_NAME to "${handler#cmd_}" once, after the
+# case runs (wt.sh:385) — correct only for an arm whose handler suffix equals
+# the arm's own first pattern word. An arm sharing a handler with another
+# command (rm/prune -> cmd_delete) or naming its handler differently from its
+# first word must set WT_CMD_NAME itself inside the arm, or every die/log_error
+# it triggers prints the wrong command name.
+
+# Extract one offending "<first-word>:<handler>" line per dispatch arm in
+# main()'s handler-resolution case (the one assigning "handler=cmd_*", not the
+# earlier -h/--help|-v/--version case, which assigns no handler and is skipped
+# by the same test) whose handler's cmd_ suffix differs from the arm's own
+# first pattern word and whose body never sets WT_CMD_NAME.
+# Args: $1 path to a wt.sh
+# Out: one "<first-word>:<handler>" line per violation, none when clean
+_wt_cmd_name_violations() {
+    local script="$1"
+    local dump
+    dump=$(bash -c "source '$script' >/dev/null 2>&1 || true; declare -f main" 2>/dev/null)
+
+    local header="" body="" collecting=0 line trimmed
+    while IFS= read -r line; do
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        if [[ $collecting -eq 0 ]]; then
+            if [[ "$trimmed" =~ ^([a-zA-Z_]+([[:space:]]*\|[[:space:]]*[a-zA-Z_]+)*)\)[[:space:]]*$ ]]; then
+                header="${BASH_REMATCH[1]}"
+                body=""
+                collecting=1
+            fi
+            continue
+        fi
+        if [[ "$trimmed" == ";;" ]]; then
+            _wt_check_cmd_name_arm "$header" "$body"
+            collecting=0
+            continue
+        fi
+        body+="$line"$'\n'
+    done <<< "$dump"
+}
+
+# Args: $1 arm header ("tok1 | tok2"), $2 arm body text
+# Out: "<first-word>:<handler>" when the arm is offending, nothing otherwise
+_wt_check_cmd_name_arm() {
+    local header="$1" body="$2"
+    [[ "$body" == *"handler=cmd_"* ]] || return 0
+    local handler
+    handler=$(printf '%s\n' "$body" | grep -oE 'handler=cmd_[a-zA-Z_]+' | head -1)
+    handler="${handler#handler=}"
+    local first="${header%%|*}"
+    first="${first#"${first%%[![:space:]]*}"}"
+    first="${first%"${first##*[![:space:]]}"}"
+    local suffix="${handler#cmd_}"
+    if [[ "$suffix" != "$first" && "$body" != *"WT_CMD_NAME="* ]]; then
+        echo "${first}:${handler}"
+    fi
+}
+
+@test "every dispatch arm whose handler is not cmd_<word> sets WT_CMD_NAME itself" {
+    run _wt_cmd_name_violations "$WT_SCRIPT_DIR/wt.sh"
+    [[ "$status" -eq 0 ]]
+    if [[ -n "$output" ]]; then
+        echo "offending arm(s): $output" >&2
+    fi
+    [[ -z "$output" ]]
 }
 
 # ===== C4: NO_COLOR wins even on a terminal =====

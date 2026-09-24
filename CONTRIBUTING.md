@@ -161,7 +161,7 @@ Open an issue with the `enhancement` label and describe:
   ```bash
   log_info  "informational message"   # → stderr
   log_warn  "warning message"         # → stderr
-  log_error "error message"           # → stderr
+  log_error "error message"           # → stderr, as "wt <command>: error message"
   log_success "success message"       # → stderr
   ```
 - Use `yq` (mikefarah v4) for all YAML reads/writes; use `strenv()` for safe string injection.
