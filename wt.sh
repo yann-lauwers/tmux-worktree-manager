@@ -182,45 +182,40 @@ check_required_dependencies() {
     fi
 }
 
-# True when the arguments name a request for a command's or a subcommand's own
-# help page:
-#   "-h"/"--help" as the command itself (the top-level page);
-#   "<command> -h|--help" for any command word, with no lookup — the
-#     handler's own -h|--help arm, or main()'s unknown-command arm, answers
-#     with no dependency on check_required_dependencies having run;
-#   "<command> <word> -h|--help" where <word> does not start with "-" and a
-#     cmd_<command>_* function exists, discovered via declare -F rather than
+# True when the arguments after the command word name a request for the
+# command's or a subcommand's own help page:
+#   "-h|--help" first, for any command, with no lookup — the handler's own
+#     -h|--help arm answers with no dependency on check_required_dependencies
+#     having run;
+#   "<word> -h|--help" where <word> does not start with "-" and a
+#     "${handler}_*" function exists, discovered via declare -F rather than
 #     a hand-kept list — covers wt db reset --help, wt pr conflicts --help,
 #     wt ports set --help, and (by the same rule, harmlessly) wt pr <branch>
 #     --help and wt ports <branch> --help, which reach a parser that prints
-#     help either way. This rule keys on the command word as typed, so an
-#     alias of a subcommand-bearing command (none exists today) would answer
-#     subcommand help only after the dependency check — the surface test's
-#     no-yq/no-tmux probe would report it.
+#     help either way. It keys on the handler main() resolved, so an alias
+#     of a command with subcommands answers exactly as its canonical word.
+# `wt -h`/`--help`/`help` never reach here: main()'s global-flag case answers
+# them before any handler is resolved.
 # When true, main() skips check_required_dependencies and dispatches as
 # normal — the handler's own -h|--help arm is what actually prints the page.
-# exec and send carry no cmd_exec_*/cmd_send_* functions, so the third rule
+# exec and send carry no cmd_exec_*/cmd_send_* functions, so the second rule
 # never fires for them: `wt exec <branch> <cmd> -h` reaches the wrapped
 # command's own "-h" rather than being swallowed here.
-# Args: $1 command word, $@ (from $2) the remaining arguments
+# Args: $1 the handler main() resolved the command word to (e.g. cmd_db),
+#   $@ (from $2) the arguments typed after the command word
 # Out: none (boolean via exit status)
 _wt_help_requested() {
-    local command="$1"
+    local handler="$1"
     shift || true
     local first="${1:-}"
     local second="${2:-}"
-
-    if [[ "$command" == "-h" || "$command" == "--help" ]]; then
-        return 0
-    fi
-    [[ "$command" == -* ]] && return 1
 
     if [[ "$first" == "-h" || "$first" == "--help" ]]; then
         return 0
     fi
 
     if [[ -n "$first" && "$first" != -* && ( "$second" == "-h" || "$second" == "--help" ) ]]; then
-        declare -F | awk '{print $3}' | grep -qE "^cmd_${command}_" && return 0
+        declare -F | awk '{print $3}' | grep -qE "^${handler}_" && return 0
     fi
 
     return 1
@@ -374,7 +369,7 @@ main() {
 
     # A command or subcommand's own --help/-h skips the dependency check —
     # reading help must never require yq or tmux to be installed.
-    if ! _wt_help_requested "$command" "$@"; then
+    if ! _wt_help_requested "$handler" "$@"; then
         check_required_dependencies
     fi
 

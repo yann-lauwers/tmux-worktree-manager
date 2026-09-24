@@ -286,6 +286,22 @@ _plant_main_global_arm() {
     mv "$out" "$root/wt.sh"
 }
 
+# Give main()'s db arm a test-only alias, dbx, in a fixture copy — no shipped
+# command with subcommands carries an alias, so this is how a test reaches the
+# alias path at all. Fails when the arm is not found, so a renamed arm turns
+# the caller red instead of leaving it testing an unaliased tree.
+# Args: $1 fixture root (as built by _copy_wt_tree)
+# Side: rewrites $1/wt.sh
+_plant_db_alias() {
+    local root="$1"
+    awk '
+        /^        db\)$/ { print "        db|dbx)"; next }
+        { print }
+    ' "$root/wt.sh" > "$root/wt.sh.tmp"
+    mv "$root/wt.sh.tmp" "$root/wt.sh"
+    grep -q '^        db|dbx)$' "$root/wt.sh"
+}
+
 @test "_wt_emit_arm on a mixed flag/word header emits FLAG, ALIASES and no CMD" {
     run _wt_emit_arm "-v | --version | version" "show_version"$'\n'
     [[ "$output" == *$'FLAG\t-v\t0'* ]]
@@ -374,7 +390,7 @@ _plant_main_global_arm() {
     _copy_wt_tree "$fixture"
 
     awk '
-        /^    if ! _wt_help_requested "\$command" "\$@"; then$/ {
+        /^    if ! _wt_help_requested "\$handler" "\$@"; then$/ {
             print
             print "        log_warn \"surface-probe\""
             print "        ensure_dir \"$WT_CONFIG_DIR/surface-probe\""
@@ -654,12 +670,12 @@ _plant_main_global_arm() {
     [[ "$output" != *"'(-n --name)'"* ]]
 }
 
-@test "_wt_help_requested takes the early path for a subcommand's own --help (C2)" {
+@test "_wt_help_requested takes the early path for a subcommand's own --help, keyed on the resolved handler (C2)" {
     run bash -c "
         source '$WT_SCRIPT_DIR/wt.sh' || true
-        _wt_help_requested db reset --help && echo 'db reset: yes' || echo 'db reset: no'
-        _wt_help_requested pr conflicts --help && echo 'pr conflicts: yes' || echo 'pr conflicts: no'
-        _wt_help_requested ports set --help && echo 'ports set: yes' || echo 'ports set: no'
+        _wt_help_requested cmd_db reset --help && echo 'db reset: yes' || echo 'db reset: no'
+        _wt_help_requested cmd_pr conflicts --help && echo 'pr conflicts: yes' || echo 'pr conflicts: no'
+        _wt_help_requested cmd_ports set --help && echo 'ports set: yes' || echo 'ports set: no'
     "
     [[ "$output" == *"db reset: yes"* ]]
     [[ "$output" == *"pr conflicts: yes"* ]]
@@ -669,9 +685,55 @@ _plant_main_global_arm() {
 @test "wt exec <branch> <cmd> -h reaches the wrapped command, not wt's own help" {
     run bash -c "
         source '$WT_SCRIPT_DIR/wt.sh' || true
-        _wt_help_requested exec somebranch somecmd -h && echo 'exec: yes' || echo 'exec: no'
-        _wt_help_requested send somebranch someservice -h && echo 'send: yes' || echo 'send: no'
+        _wt_help_requested cmd_exec somebranch somecmd -h && echo 'exec: yes' || echo 'exec: no'
+        _wt_help_requested cmd_send somebranch someservice -h && echo 'send: yes' || echo 'send: no'
     "
     [[ "$output" == *"exec: no"* ]]
     [[ "$output" == *"send: no"* ]]
+}
+
+@test "an alias of a subcommand-bearing command takes the same early help path as its canonical word" {
+    local fixture="$TEST_TMPDIR/alias-early-path"
+    _copy_wt_tree "$fixture"
+    _plant_db_alias "$fixture"
+
+    local shim home_dir out_alias_h out_alias_hh out_canonical_hh
+    shim="$TEST_TMPDIR/shim"
+    home_dir="$TEST_TMPDIR/home"
+    mkdir -p "$home_dir"
+    _wt_build_help_shim "$shim"
+    out_alias_h="$TEST_TMPDIR/out-alias-h.txt"
+    out_alias_hh="$TEST_TMPDIR/out-alias-hh.txt"
+    out_canonical_hh="$TEST_TMPDIR/out-canonical-hh.txt"
+
+    run _wt_run_help_probe "$fixture" "$shim" "$home_dir" "$out_alias_h" dbx reset -h
+    [[ "$status" -eq 0 ]]
+    run _wt_run_help_probe "$fixture" "$shim" "$home_dir" "$out_alias_hh" dbx reset --help
+    [[ "$status" -eq 0 ]]
+    run _wt_run_help_probe "$fixture" "$shim" "$home_dir" "$out_canonical_hh" db reset --help
+    [[ "$status" -eq 0 ]]
+
+    # C3: byte-identical to the canonical form's page.
+    diff -q "$out_alias_h" "$out_canonical_hh"
+    diff -q "$out_alias_hh" "$out_canonical_hh"
+}
+
+@test "a non-help call still runs the dependency check, through the alias and the canonical word alike" {
+    local fixture="$TEST_TMPDIR/alias-dependency-check"
+    _copy_wt_tree "$fixture"
+    _plant_db_alias "$fixture"
+
+    local shim home_dir out
+    shim="$TEST_TMPDIR/shim2"
+    home_dir="$TEST_TMPDIR/home2"
+    mkdir -p "$home_dir"
+    _wt_build_help_shim "$shim"
+
+    local word
+    for word in dbx db; do
+        out="$TEST_TMPDIR/out-nohelp-$word.txt"
+        run _wt_run_help_probe "$fixture" "$shim" "$home_dir" "$out" "$word" reset
+        [[ "$status" -eq 1 ]]
+        grep -q "Missing required dependencies" "$out"
+    done
 }
