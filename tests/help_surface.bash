@@ -8,7 +8,10 @@
 # both shell completion scripts against the same discovery
 # (`wt_surface_docs_check`) — a command added to main()'s dispatch with no
 # README row fails by name, and so does a command or subcommand, alias
-# included, missing from either completion.
+# included, missing from either completion. main()'s own global-flag case
+# (`-h|--help|help)`, `-v|--version|version)`) is checked too, as a synthetic
+# ROOT unit standing for `wt` itself — a flag or command word it never routes
+# through a handler still owes a line on `wt --help`.
 #
 # Discovery reads `declare -f` output, which bash normalises so every case arm
 # header is its own line ("tok1 | tok2)") and every arm ends with a lone ";;"
@@ -65,16 +68,18 @@ _wt_fn_body() {
 # per case arm at its top level (sequential case blocks, never nested, are
 # what every handler in this repo uses — a nested case would break the
 # in_case counter below, but none exists as of this writing):
-#   CMD <handler-fn> <token1,token2,...>   — an arm whose tokens are all bare
-#     words (no leading '-', never '*') and whose body calls a cmd_* function;
-#     the first cmd_* token in the body is the handler.
-#   FLAG <token> <takes_value:0|1>          — one line per token in an arm
-#     whose tokens all start with '-', dropping -*, --, -h and --help; a body
+#   CMD <handler-fn> <token1,token2,...>   — one line for an arm's bare-word
+#     tokens (no leading '-', never '*'), only when its body calls a cmd_*
+#     function; the first cmd_* token in the body is the handler. An arm may
+#     be all words (main()'s second case) or mixed (main()'s own
+#     `-h|--help|help)`), and the word half is treated the same either way.
+#   FLAG <token> <takes_value:0|1>          — one line per dash token in an
+#     arm (all-dash or mixed), dropping -*, --, -h and --help; a body
 #     containing "shift 2" marks the flag as taking a value. An arm whose body
 #     calls die_unknown_option refuses its flags — a removed flag answered with
 #     a hint — so it emits nothing: a refused flag is owed no Options: line.
-# An arm matching neither shape (mixed tokens, or a word-only arm whose body
-# never calls cmd_*) is silently skipped — it is not part of the discoverable
+# An arm carrying a literal '*' token, or a word-only arm whose body never
+# calls cmd_*, is silently skipped — it is not part of the discoverable
 # surface (e.g. cmd_ports's own `set|clear)` arm just sets a local variable;
 # the *real* dispatch is its second, sequential case block).
 # Args: $1 function body text (as produced by `declare -f`)
@@ -123,13 +128,26 @@ _wt_parse_case_arms() {
 
 # Emit the discovery line(s) for one parsed case arm. Split out of
 # _wt_parse_case_arms so the token classification reads as one place.
-# Beside the per-token FLAG lines, a live all-dash arm also emits one
-# "ALIASES\t<tokens comma-joined>" row (same exclusions as FLAG: -*, --,
-# -h/--help dropped, and a die_unknown_option body emits nothing at all) — the
-# per-token FLAG rows lose which short and long token share one arm, and
-# wt_short_flag_check needs that grouping to find a short letter mapped to
-# two different long flags. Every existing FLAG/CMD consumer filters with
-# `grep '^FLAG'` / `grep '^CMD'`, so this new row kind is invisible to them.
+#
+# An arm's tokens split into its dash tokens and its bare words; each half is
+# handled independently, so an all-dash arm, an all-word arm and a mixed arm
+# (main()'s own `-h|--help|help)`, `-v|--version|version)`) all fall out of
+# the same two blocks below. A literal '*' token disqualifies the whole arm
+# (returns before either block runs) — that arm is a catch-all, never a
+# documented word or flag.
+#
+# The word half emits "CMD\t<handler-fn>\t<token1,token2,...>" only when the
+# body calls a cmd_* function; the first cmd_* token in the body is the
+# handler. The dash half emits one "FLAG\t<token>\t<takes_value:0|1>" line per
+# kept token (dropping -*, --, -h, --help; "shift 2" in the body marks
+# takes_value), plus one "ALIASES\t<tokens comma-joined>" row grouping that
+# arm's own kept dash tokens — the per-token FLAG rows lose which short and
+# long token share one arm, and wt_short_flag_check needs that grouping to
+# find a short letter mapped to two different long flags. A body calling
+# die_unknown_option refuses its flags — a removed flag answered with a hint —
+# so the dash half emits nothing at all, independently of the word half.
+# Every existing FLAG/CMD consumer filters with `grep '^FLAG'` / `grep
+# '^CMD'`, so the ALIASES row is invisible to them.
 # Args: $1 arm header ("tok1 | tok2"), $2 arm body text
 _wt_emit_arm() {
     local header="$1" body="$2"
@@ -147,26 +165,28 @@ _wt_emit_arm() {
     done
     [[ ${#toks[@]} -eq 0 ]] && return
 
-    local all_words=1 all_dash=1
+    local -a dash_toks=() word_toks=()
     for t in "${toks[@]}"; do
-        [[ "$t" == "*" ]] && { all_words=0; all_dash=0; }
-        [[ "$t" == -* ]] && all_words=0
-        [[ "$t" != -* ]] && all_dash=0
+        [[ "$t" == "*" ]] && return
+        if [[ "$t" == -* ]]; then
+            dash_toks+=("$t")
+        else
+            word_toks+=("$t")
+        fi
     done
 
-    if [[ $all_words -eq 1 ]]; then
+    if [[ ${#word_toks[@]} -gt 0 ]]; then
         local handler
         handler=$(printf '%s\n' "$body" | grep -oE 'cmd_[a-zA-Z_]+' | head -1)
-        [[ -n "$handler" ]] && printf 'CMD\t%s\t%s\n' "$handler" "$(IFS=,; echo "${toks[*]}")"
-        return
+        [[ -n "$handler" ]] && printf 'CMD\t%s\t%s\n' "$handler" "$(IFS=,; echo "${word_toks[*]}")"
     fi
 
-    if [[ $all_dash -eq 1 ]]; then
+    if [[ ${#dash_toks[@]} -gt 0 ]]; then
         [[ "$body" == *die_unknown_option* ]] && return
         local takes_value=0
         [[ "$body" == *"shift 2"* ]] && takes_value=1
         local -a kept=()
-        for t in "${toks[@]}"; do
+        for t in "${dash_toks[@]}"; do
             case "$t" in
                 -*'*') continue ;;
                 --) continue ;;
@@ -475,13 +495,22 @@ _wt_standard_usage_line() {
     printf "wt %s: unknown option '%s' \xe2\x80\x94 see 'wt %s --help'\n" "$1" "$2" "$1"
 }
 
+# The stderr line main()'s own "*)" arm prints for an unrecognised leading
+# word — the shape a ROOT-unit probe hits, since a bad top-level word never
+# reaches a command's own die_unknown_option.
+# Args: $1 the unrecognised word
+_wt_root_unknown_command_line() {
+    printf "wt: unknown command '%s' \xe2\x80\x94 see 'wt --help'\n" "$1"
+}
+
 # ─── Unit assembly ──────────────────────────────────────────────────────────
 
 # Turn a `_wt_discover_surface` dump into one testable unit per command and
-# subcommand, each carrying its own flags. Both `wt_surface_check` (which
-# probes each unit's --help page) and `wt_surface_list` (which only reports
-# what discovery found) read from this — the discovery and the aggregation
-# it runs on top of are never duplicated between them.
+# subcommand, each carrying its own flags, plus one synthetic ROOT unit
+# standing for `wt` itself. Both `wt_surface_check` (which probes each unit's
+# --help page) and `wt_surface_list` (which only reports what discovery
+# found) read from this — the discovery and the aggregation it runs on top of
+# are never duplicated between them.
 #
 # The word a unit is probed with, and the word its standard unknown-option
 # line names, is always the FIRST token of a case arm's tokens — "${a%%,*}"
@@ -491,6 +520,13 @@ _wt_standard_usage_line() {
 # command's own die_usage/die_unknown_option calls must name that same
 # canonical word — reordering an arm without updating its die_* calls
 # produces a stderr line this check no longer recognises as standard.
+#
+# The ROOT unit carries an EMPTY invoke — `wt --help`/`wt -h` take no leading
+# word — its display word is the literal "wt", its flags are every FLAG row
+# with an empty owner (main()'s own global-flag arm), and its subwords are
+# every top-level COMMAND's own token csv, so a command word missing from
+# `wt --help` fails the same way a subcommand missing from its parent's page
+# does.
 # Args: $1 root
 # Out: one "kind|invoke-words|display-words|flags-csv|subwords-csv" line per unit
 _wt_build_units() {
@@ -508,6 +544,7 @@ _wt_build_units() {
     subs_only=$(printf '%s\n' "$surface" | grep '^SUBCOMMAND' || true)
 
     local kind a b c
+    local root_subwords_csv=""
 
     while IFS=$'\t' read -r kind a b; do
         [[ "$kind" != "COMMAND" ]] && continue
@@ -521,7 +558,17 @@ _wt_build_units() {
             [[ "$parent" == "$a" ]] && subwords_csv+="${sub};"
         done <<< "$subs_only"
         printf 'COMMAND|%s|%s|%s|%s\n' "$invoke" "$a" "$flags_csv" "$subwords_csv"
+        root_subwords_csv+="${a};"
     done < <(printf '%s\n' "$surface" | grep '^COMMAND')
+
+    # awk, not a tab-IFS `read` loop: bash's `read` treats a tab as "IFS
+    # whitespace" regardless of what IFS is set to, so it collapses the
+    # adjacent tabs an empty-owner row carries ("FLAG\t\t-v\t0") and shifts
+    # every field left instead of reading owner as empty — awk's -F'\t'
+    # splits on the literal byte and keeps the empty field.
+    local root_flags_csv
+    root_flags_csv=$(printf '%s\n' "$flags_only" | awk -F'\t' '$2 == "" { printf "%s:%s,", $3, $4 }')
+    printf 'ROOT|%s|wt|%s|%s\n' "" "$root_flags_csv" "$root_subwords_csv"
 
     while IFS=$'\t' read -r kind a b c; do
         [[ "$kind" != "SUBCOMMAND" ]] && continue
@@ -600,6 +647,9 @@ wt_short_flag_check() {
 #       whose invoke words equal it (a `control:` test checking the
 #       shape-checking logic itself against one known unit, cheaper than the
 #       whole surface); the real-tree guard test omits it and checks all of them.
+#       "wt" selects the synthetic ROOT unit, whose own invoke is empty
+#       (`wt --help` takes no leading word), so it cannot be selected by
+#       matching invoke words the way every other unit is.
 wt_surface_check() {
     local root="$1"
     local only_invoke="${2:-}"
@@ -626,7 +676,13 @@ wt_surface_check() {
         local u_kind u_invoke u_display u_flags u_subwords
         IFS='|' read -r u_kind u_invoke u_display u_flags u_subwords <<< "$unit"
 
-        [[ -n "$only_invoke" && "$u_invoke" != "$only_invoke" ]] && continue
+        if [[ -n "$only_invoke" ]]; then
+            if [[ "$only_invoke" == "wt" ]]; then
+                [[ "$u_kind" != "ROOT" ]] && continue
+            else
+                [[ "$u_invoke" != "$only_invoke" ]] && continue
+            fi
+        fi
 
         local -a probe_words=()
         read -ra probe_words <<< "$u_invoke"
@@ -634,9 +690,9 @@ wt_surface_check() {
         local out_h out_hh
         out_h=$(mktemp)
         out_hh=$(mktemp)
-        _wt_run_help_probe "$root" "$shim" "$home_dir" "$out_h" "${probe_words[@]}" -h
+        _wt_run_help_probe "$root" "$shim" "$home_dir" "$out_h" ${probe_words[@]+"${probe_words[@]}"} -h
         local rc_h=$?
-        _wt_run_help_probe "$root" "$shim" "$home_dir" "$out_hh" "${probe_words[@]}" --help
+        _wt_run_help_probe "$root" "$shim" "$home_dir" "$out_hh" ${probe_words[@]+"${probe_words[@]}"} --help
         local rc_hh=$?
 
         if [[ $rc_h -ne 0 ]]; then
@@ -681,6 +737,8 @@ wt_surface_check() {
             esac
         done
 
+        local sub_word_label="subcommand"
+        [[ "$u_kind" == "ROOT" ]] && sub_word_label="command"
         local sub_entry
         IFS=';' read -ra sub_entries <<< "$u_subwords"
         for sub_entry in "${sub_entries[@]}"; do
@@ -690,13 +748,17 @@ wt_surface_check() {
             for sub_alias in "${sub_aliases[@]}"; do
                 [[ -z "$sub_alias" ]] && continue
                 if [[ "$page" != *"$sub_alias"* ]]; then
-                    echo "VIOLATION ${u_display}: subcommand '${sub_alias}' is not named on the page"
+                    echo "VIOLATION ${u_display}: ${sub_word_label} '${sub_alias}' is not named on the page"
                     violation_count=$((violation_count + 1))
                 fi
             done
         done
 
-        if [[ "$page" != *"wt ${u_display}"* && "$page" != *"wt ${u_invoke}"* ]]; then
+        # ROOT's own invoke is empty, so "wt" itself already names it — the
+        # generic own-page check below would either compare against a
+        # nonsense empty word or pass on the coincidence that "wt " appears
+        # in the Usage: line; skip it outright instead.
+        if [[ "$u_kind" != "ROOT" ]] && [[ "$page" != *"wt ${u_display}"* && "$page" != *"wt ${u_invoke}"* ]]; then
             echo "VIOLATION ${u_display}: 'wt ${u_invoke}' does not appear on its own page"
             violation_count=$((violation_count + 1))
         fi
@@ -717,14 +779,19 @@ wt_surface_check() {
         uo_home=$(mktemp -d)
         uo_out=$(mktemp)
         uo_err=$(mktemp)
-        _wt_run_usage_probe "$root" "$PATH" "$uo_home" "$uo_out" "$uo_err" "${probe_words[@]}" --surface-no-such-flag
+        _wt_run_usage_probe "$root" "$PATH" "$uo_home" "$uo_out" "$uo_err" \
+            ${probe_words[@]+"${probe_words[@]}"} --surface-no-such-flag
         local uo_rc=$?
         if [[ $uo_rc -ne 2 ]]; then
             echo "VIOLATION ${u_display}: an unknown option exited ${uo_rc}, want 2"
             violation_count=$((violation_count + 1))
         fi
         local expected_line
-        expected_line=$(_wt_standard_usage_line "$u_invoke" "--surface-no-such-flag")
+        if [[ "$u_kind" == "ROOT" ]]; then
+            expected_line=$(_wt_root_unknown_command_line "--surface-no-such-flag")
+        else
+            expected_line=$(_wt_standard_usage_line "$u_invoke" "--surface-no-such-flag")
+        fi
         if ! grep -qF "$expected_line" "$uo_err"; then
             echo "VIOLATION ${u_display}: unknown-option stderr does not equal the standard line"
             violation_count=$((violation_count + 1))
@@ -740,7 +807,7 @@ wt_surface_check() {
         nf_out=$(mktemp)
         nf_err=$(mktemp)
         _wt_run_usage_probe "$root" "$no_optional_shim" "$nf_home" "$nf_out" "$nf_err" \
-            "${probe_words[@]}" --surface-no-such-flag
+            ${probe_words[@]+"${probe_words[@]}"} --surface-no-such-flag
         local nf_rc=$?
         if [[ $nf_rc -ne 2 ]]; then
             echo "VIOLATION ${u_display}: (no fzf/jq/gh) an unknown option exited ${nf_rc}, want 2"
@@ -917,6 +984,12 @@ wt_surface_docs_check() {
     for unit in "${units[@]}"; do
         local u_kind u_invoke u_display u_flags u_subwords
         IFS='|' read -r u_kind u_invoke u_display u_flags u_subwords <<< "$unit"
+
+        # The synthetic ROOT unit stands for `wt` itself, never a documented
+        # command or subcommand — README's tables and both completions are
+        # checked against COMMAND/SUBCOMMAND rows only, so ROOT is skipped
+        # rather than reported as missing from either.
+        [[ "$u_kind" == "ROOT" ]] && continue
 
         if [[ "$u_kind" == "COMMAND" ]]; then
             local -a all_words=()

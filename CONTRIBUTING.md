@@ -190,10 +190,15 @@ Open an issue with the `enhancement` label and describe:
 4. Keep the argument parser in the `while [[ $# -gt 0 ]] ... case "$1" in ... esac; done`
    shape every other command uses — that shape is what the surface test's discovery reads
    flags and subcommands out of.
-5. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh`.
-6. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
-7. Run `bats tests/test_help_surface.bats` — a command, subcommand or flag with no
-   conforming page fails it by name.
+5. Add a row for it to `README.md`'s `## Commands` tables, by canonical name, and add its
+   canonical word to `show_help()`'s own `Commands:` list in `wt.sh` — the surface test
+   refuses a command missing from either: from README by `wt_surface_docs_check`, from
+   `wt --help` itself by `wt_surface_check`, which treats `wt` as a unit of its own.
+6. Add tab-completion support in `completions/wt.bash` and `completions/wt.zsh` — the same
+   docs check refuses a command or subcommand word, alias included, missing from either.
+7. Add unit tests in `tests/test_commands.bats` and, if needed, e2e tests in `tests/test_e2e.bats`.
+8. Run `bats tests/test_help_surface.bats` — § Test Requirements below says exactly what it
+   checks.
 
 ---
 
@@ -222,7 +227,25 @@ bats tests/ --verbose-run
 - **Every new feature** must include unit tests in the relevant `tests/test_<module>.bats` **and** integration tests in `tests/test_commands.bats` or `tests/test_e2e.bats`.
 - **Every bug fix** must include a regression test — write a test that would have caught the bug *before* your fix, then verify it passes *after*.
 - **Prefer tests without tmux** — most logic can be exercised by calling library functions directly. Reserve tmux-dependent tests for `test_e2e.bats`.
-- **Every command or flag added or changed** must keep `bats tests/test_help_surface.bats` green — it discovers the whole command/subcommand/flag surface from source and checks each one's `--help` page against the page-shape contract; see `tests/help_surface.bash` for the rules it enforces.
+- **Every command or flag added or changed** must keep `bats tests/test_help_surface.bats` green.
+  Its discovery reads main()'s own case arms, the `cmd_*` handler each dispatch arm names, the
+  `cmd_*` subcommand handlers those handlers' arms name, and one `_<name>_open`/`_<name>_default`
+  default-action function per handler — only in the flat `while … case "$1" in … esac; done`
+  shape every handler uses (a nested case block breaks the parser) — and skips any arm carrying
+  a literal `*` token. A mixed flag/word arm such as `-v|--version|version)` is discovered in
+  any parser. Within that reach it checks:
+  - each command's and subcommand's own `--help` page: a description paragraph, every flag with
+    its `default:` and, if it takes a value, a `<placeholder>`, every subcommand named, an
+    `Exit codes:` block listing `0` and `2`, and the standard unknown-option line, checked
+    again with fzf, jq and gh absent from `PATH`;
+  - `wt --help` itself, to the same page shape: every flag main()'s global case reads, every
+    top-level command word named, and main()'s unknown-command line
+    (`wt: unknown command '<word>' — see 'wt --help'`) in place of the unknown-option line;
+  - `README.md`'s `## Commands` tables, by each command's canonical name;
+  - both completion scripts, for every command and subcommand word, aliases included;
+  - no short flag naming two different long flags across wt (`wt_short_flag_check`).
+
+  `tests/help_surface.bash`'s header comment carries the full rule list.
 
 ### Writing Tests
 

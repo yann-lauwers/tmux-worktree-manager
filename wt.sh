@@ -124,7 +124,7 @@ Examples:
 
 Options:
   -h, --help       Show this page
-  -v, --version    Show the wt version
+  -v, --version    Show the wt version (default: off)
 
 Environment:
   WT_CONFIG_DIR      Config directory (default: ~/.config/wt)
