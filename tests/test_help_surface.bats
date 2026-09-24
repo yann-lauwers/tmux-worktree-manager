@@ -429,6 +429,66 @@ _wrap_attach_page() {
     [[ "$output" == *"VIOLATION db: not offered by completions/wt.zsh"* ]]
 }
 
+@test "control: conflicts removed from the bash completion's pr word list is caught by name" {
+    local fixture="$TEST_TMPDIR/control-sub-bash-pr"
+    _copy_wt_tree "$fixture"
+
+    sed -i.bak 's/"conflicts c resolve \$worktrees"/"c resolve \$worktrees"/' "$fixture/completions/wt.bash"
+    rm -f "$fixture/completions/wt.bash.bak"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION pr conflicts: not offered by completions/wt.bash"* ]]
+}
+
+@test "control: conflicts removed from zsh's pr_subcommands is caught by name" {
+    local fixture="$TEST_TMPDIR/control-sub-zsh-pr"
+    _copy_wt_tree "$fixture"
+
+    awk '/^        .conflicts:List open PRs with merge conflicts./ { next } { print }' "$fixture/completions/wt.zsh" > "$fixture/completions/wt.zsh.tmp"
+    mv "$fixture/completions/wt.zsh.tmp" "$fixture/completions/wt.zsh"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION pr conflicts: not offered by completions/wt.zsh"* ]]
+}
+
+@test "control: a non-pr subcommand removed from the bash completion is caught by name" {
+    local fixture="$TEST_TMPDIR/control-sub-bash-db"
+    _copy_wt_tree "$fixture"
+
+    sed -i.bak 's/"reset url dump use-remote detach \$worktrees"/"reset dump use-remote detach \$worktrees"/' "$fixture/completions/wt.bash"
+    rm -f "$fixture/completions/wt.bash.bak"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION db url: not offered by completions/wt.bash"* ]]
+}
+
+@test "control: a non-pr subcommand removed from the zsh completion is caught by name" {
+    local fixture="$TEST_TMPDIR/control-sub-zsh-ports"
+    _copy_wt_tree "$fixture"
+
+    awk '/^        .clear:Remove a service./ { next } { print }' "$fixture/completions/wt.zsh" > "$fixture/completions/wt.zsh.tmp"
+    mv "$fixture/completions/wt.zsh.tmp" "$fixture/completions/wt.zsh"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION ports clear: not offered by completions/wt.zsh"* ]]
+}
+
+@test "control: an alias subcommand removed from the bash completion is caught by name" {
+    local fixture="$TEST_TMPDIR/control-sub-bash-alias"
+    _copy_wt_tree "$fixture"
+
+    sed -i.bak 's/"reset url dump use-remote detach \$worktrees"/"reset url dump use-remote \$worktrees"/' "$fixture/completions/wt.bash"
+    rm -f "$fixture/completions/wt.bash.bak"
+
+    run wt_surface_docs_check "$fixture"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"VIOLATION db detach: not offered by completions/wt.bash"* ]]
+}
+
 @test "control: README is checked by canonical name, so an alias row does not stand in for it" {
     local fixture="$TEST_TMPDIR/control-alias"
     _copy_wt_tree "$fixture"
