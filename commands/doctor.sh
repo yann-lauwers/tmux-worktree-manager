@@ -54,6 +54,9 @@ cmd_doctor() {
     _doctor_check_cmd "yq" "brew install yq"
     _doctor_check_cmd "tmux" "brew install tmux"
     _doctor_check_cmd "envsubst" "brew install gettext"
+    _doctor_check_optional_cmd "fzf" "brew install fzf"
+    _doctor_check_optional_cmd "jq" "brew install jq"
+    _doctor_check_optional_cmd "gh" "brew install gh"
 
     _doctor_echo ""
 
@@ -516,6 +519,21 @@ _doctor_check_cmd() {
     fi
 }
 
+# Report an optional tool (fzf, jq, gh) — present is a pass, missing is a warn, never a
+# fail: unlike _doctor_check_cmd's required tools, an optional one degrades one command's
+# feature rather than failing doctor's own exit code.
+# Args: $1 command, $2 install hint
+_doctor_check_optional_cmd() {
+    local cmd="$1"
+    local install_hint="$2"
+
+    if command_exists "$cmd"; then
+        _doctor_pass "$cmd (optional) available"
+    else
+        _doctor_warn "$cmd not found (optional: $install_hint)"
+    fi
+}
+
 # Print the 'wt doctor' help page to stdout.
 show_doctor_help() {
     cat << 'EOF'
@@ -526,7 +544,8 @@ files are left unchanged.
 Usage: wt doctor [options]
 
 Checks performed:
-  1. Dependencies       - git, yq, tmux, envsubst (with versions)
+  1. Dependencies       - git, yq, tmux, envsubst (with versions); fzf, jq, gh as
+                          optional rows (warn, not fail, when missing)
   2. Project Configuration - YAML syntax, required fields, port ranges
   3. State Consistency  - orphaned worktree entries, stale service PIDs
   4. Worktree Links     - each linked worktree's .git link is relative and resolves

@@ -213,25 +213,13 @@ teardown() {
     [[ "$value" == "value" ]]
 }
 
-# --- check_dependencies stays off stdout when optional deps are missing ---
+# --- note_optional_missing stays off stdout ---
 
-@test "check_dependencies with fzf/jq/gh missing prints nothing on stdout, and warns on stderr" {
-    local shim_dir="$TEST_TMPDIR/shim-bin"
-    mkdir -p "$shim_dir"
-    for tool in git yq tmux bash env; do
-        ln -s "$(command -v "$tool")" "$shim_dir/$tool"
-    done
-    for tool in cat mkdir rm rmdir date sed awk grep basename dirname mktemp printf sort head tr uname ls readlink pwd expr wc cut; do
-        target="$(command -v "$tool" 2>/dev/null)" || continue
-        ln -sf "$target" "$shim_dir/$tool"
-    done
-
-    run --separate-stderr env -i PATH="$shim_dir" HOME="$HOME" WT_WARN_DEPS=true \
-        WT_SCRIPT_DIR="$WT_SCRIPT_DIR" bash -c '
-            source "$WT_SCRIPT_DIR/wt.sh" || true
-            check_dependencies
-        ' < /dev/null
+@test "note_optional_missing prints nothing on stdout, and warns on stderr" {
+    run --separate-stderr env WT_WARN_DEPS=true WT_SCRIPT_DIR="$WT_SCRIPT_DIR" bash -c '
+        source "$WT_SCRIPT_DIR/lib/utils.sh"
+        note_optional_missing gh "pr_lookup reports unavailable"
+    ' < /dev/null
     [[ "$output" == "" ]]
-    [[ "$stderr" == *"Optional dependencies missing"* ]]
-    [[ "$stderr" == *"fzf"* ]]
+    [[ "$stderr" == *"gh"* ]]
 }

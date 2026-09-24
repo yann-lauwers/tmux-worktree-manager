@@ -34,6 +34,17 @@ teardown() {
     [[ "$output" == *"PASS"* ]]
 }
 
+@test "doctor warns, and does not fail, when fzf is absent" {
+    local shim="$TEST_TMPDIR/shim"
+    build_no_fzf_shim "$shim"
+    local old_path="$PATH"
+    PATH="$shim"
+    run cmd_doctor -p nonexistent 2>&1
+    PATH="$old_path"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"WARN"*"fzf"* ]]
+}
+
 @test "doctor detects yq" {
     run cmd_doctor -p nonexistent 2>&1
     [[ "$output" == *"yq"* ]]
