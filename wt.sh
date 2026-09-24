@@ -8,7 +8,7 @@ set -euo pipefail
 # reports its release tag instead (lib/version.sh). The release step,
 # scripts/check-release.sh, keeps this equal to the latest v* tag. Keep the
 # VERSION="x.y.z" form: that script parses this line.
-VERSION="2.1.0"
+VERSION="3.0.0"
 
 # Determine script directory (resolve symlinks)
 SOURCE="${BASH_SOURCE[0]}"
