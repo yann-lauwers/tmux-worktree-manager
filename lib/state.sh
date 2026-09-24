@@ -8,7 +8,7 @@ state_file() {
 }
 
 # Initialize state file if needed
-# Side: creates WT_STATE_DIR when missing (main() no longer creates it up front)
+# Side: creates WT_STATE_DIR when missing
 init_state_file() {
     local project="$1"
     local file

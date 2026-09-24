@@ -34,15 +34,20 @@ teardown() {
     [[ "$output" == *"PASS"* ]]
 }
 
-@test "doctor warns, and does not fail, when fzf is absent" {
+@test "doctor warns, and does not fail, on fzf specifically when fzf is absent" {
+    # No -p: cwd is TEST_TMPDIR (no git repo, no wt config), so project detection
+    # comes back empty and doctor stops after Dependencies — the section fzf's row
+    # is in — rather than failing on an unrelated missing project config.
+    # build_shim_without carries no envsubst, so the Dependencies section's own
+    # envsubst row still fails here; this asserts fzf's own row only.
     local shim="$TEST_TMPDIR/shim"
-    build_no_fzf_shim "$shim"
+    build_shim_without "$shim" fzf
     local old_path="$PATH"
     PATH="$shim"
-    run cmd_doctor -p nonexistent 2>&1
+    run cmd_doctor
     PATH="$old_path"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"WARN"*"fzf"* ]]
+    [[ "$output" == *"WARN  fzf not found"* ]]
+    ! printf '%s\n' "$output" | grep -q "FAIL.*fzf"
 }
 
 @test "doctor detects yq" {

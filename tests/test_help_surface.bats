@@ -266,6 +266,26 @@ _wrap_attach_page() {
     [[ "$output" == *$'ALIASES\t-s,--status'* ]]
 }
 
+@test "control: main() writing a stray warning or creating a dir before dispatch is caught by name" {
+    local fixture="$TEST_TMPDIR/control-main-side-effect"
+    _copy_wt_tree "$fixture"
+
+    awk '
+        /^    if ! _wt_help_requested "\$command" "\$@"; then$/ {
+            print
+            print "        log_warn \"surface-probe\""
+            print "        ensure_dir \"$WT_CONFIG_DIR/surface-probe\""
+            next
+        }
+        { print }
+    ' "$fixture/wt.sh" > "$fixture/wt.sh.tmp"
+    mv "$fixture/wt.sh.tmp" "$fixture/wt.sh"
+
+    run wt_surface_check "$fixture" doctor
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"(no fzf/jq/gh) unknown-option stderr is not exactly the standard line"* || "$output" == *"(no fzf/jq/gh) unknown option created \$home/config or \$home/data"* ]]
+}
+
 @test "control: a page missing its Exit codes: block is caught by name" {
     local fixture="$TEST_TMPDIR/control-exitcodes"
     _copy_wt_tree "$fixture"

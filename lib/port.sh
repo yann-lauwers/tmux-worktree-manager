@@ -178,7 +178,7 @@ slots_file() {
 }
 
 # Initialize slots file if needed
-# Side: creates WT_STATE_DIR when missing (main() no longer creates it up front)
+# Side: creates WT_STATE_DIR when missing
 init_slots_file() {
     local file
     file=$(slots_file)

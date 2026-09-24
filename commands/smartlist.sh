@@ -178,11 +178,13 @@ _smartlist_json() {
         local pr_lookup="skipped"
         if [[ "$smart_quick" != "true" ]]; then
             repo_nwo=$(smart_get_repo_nwo "$repo_root")
-            if [[ -n "$repo_nwo" ]] && command_exists gh; then
+            if [[ -z "$repo_nwo" ]]; then
+                pr_lookup="unavailable"
+            elif command_exists gh; then
                 pr_lookup="done"
             else
                 pr_lookup="unavailable"
-                [[ -n "$repo_nwo" ]] && ! command_exists gh && note_optional_missing gh "pr_lookup reports unavailable"
+                note_optional_missing gh "pr_lookup reports unavailable"
             fi
         fi
 
