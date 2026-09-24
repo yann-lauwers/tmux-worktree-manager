@@ -97,7 +97,7 @@ Commands:
   rm               Delete worktrees (fzf multi-select; --merged for merged/closed only)
   prune            Delete merged/closed-PR worktrees (alias for rm --merged)
   code, cursor     Open a worktree in the configured editor
-  pr               PR management (open in browser, list and resolve conflicts)
+  pr               PR management (open in browser, list conflicts, resolve one)
   start, up        Start services in a worktree
   stop, down       Stop services in a worktree
   status, st       Show worktree status (recorded state)
