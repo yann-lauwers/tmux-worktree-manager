@@ -266,6 +266,109 @@ _wrap_attach_page() {
     [[ "$output" == *$'ALIASES\t-s,--status'* ]]
 }
 
+# Plant an arm in main()'s own global case, just ahead of its live
+# -v|--version|version) arm — the fixture every ROOT-unit control below
+# inserts its own planted arm at the same spot. Inserted line by line in
+# bash rather than via `awk -v` (one-true-awk, macOS's /usr/bin/awk, rejects
+# a newline embedded in a -v string).
+# Args: $1 fixture root (as built by _copy_wt_tree), $2 arm text to insert
+# (its own header line(s) plus body and terminating ";;", one line per entry)
+_plant_main_global_arm() {
+    local root="$1" arm="$2"
+    local out="$root/wt.sh.tmp" line
+    : > "$out"
+    while IFS= read -r line; do
+        if [[ "$line" == "        -v|--version|version)" ]]; then
+            printf '%s\n' "$arm" >> "$out"
+        fi
+        printf '%s\n' "$line" >> "$out"
+    done < "$root/wt.sh"
+    mv "$out" "$root/wt.sh"
+}
+
+@test "_wt_emit_arm on a mixed flag/word header emits FLAG, ALIASES and no CMD" {
+    run _wt_emit_arm "-v | --version | version" "show_version"$'\n'
+    [[ "$output" == *$'FLAG\t-v\t0'* ]]
+    [[ "$output" == *$'FLAG\t--version\t0'* ]]
+    [[ "$output" == *$'ALIASES\t-v,--version'* ]]
+    [[ "$output" != *CMD* ]]
+}
+
+@test "_wt_emit_arm on a mixed header whose body calls a cmd_* function emits CMD too" {
+    run _wt_emit_arm "-v | --version | version" "cmd_version_thing"$'\n'
+    [[ "$output" == *$'CMD\tcmd_version_thing\tversion'* ]]
+    [[ "$output" == *$'FLAG\t-v\t0'* ]]
+    [[ "$output" == *$'FLAG\t--version\t0'* ]]
+    [[ "$output" == *$'ALIASES\t-v,--version'* ]]
+}
+
+@test "_wt_emit_arm on a mixed header refusing through die_unknown_option emits no FLAG/ALIASES" {
+    run _wt_emit_arm "-x | --xflag | word" "die_unknown_option \"x\" \"\$1\""$'\n'
+    [[ "$output" != *FLAG* ]]
+    [[ "$output" != *ALIASES* ]]
+}
+
+@test "control: an undocumented flag planted in main()'s global case is caught on the ROOT unit (C1, C3)" {
+    local fixture="$TEST_TMPDIR/control-root-flag"
+    _copy_wt_tree "$fixture"
+    _plant_main_global_arm "$fixture" $'        --surface-probe)\n            exit 0\n            ;;'
+
+    run wt_surface_check "$fixture" wt
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"wt: flag --surface-probe is not listed in Options:"* ]]
+}
+
+@test "control: a mixed flag/word arm planted in main()'s global case is caught by name (C3, C4)" {
+    local fixture="$TEST_TMPDIR/control-root-mixed"
+    _copy_wt_tree "$fixture"
+    _plant_main_global_arm "$fixture" $'        -x|--xflag|word)\n            exit 0\n            ;;'
+
+    run wt_surface_check "$fixture" wt
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"wt: flag -x is not listed in Options:"* ]]
+    [[ "$output" == *"wt: flag --xflag is not listed in Options:"* ]]
+}
+
+@test "control: a mixed flag/word arm planted in a command's own parser is caught by name (C3, C4, C5)" {
+    local fixture="$TEST_TMPDIR/control-command-mixed"
+    _copy_wt_tree "$fixture"
+    _make_attach_conform "$fixture"
+
+    awk '
+        /^            -h\|--help\)$/ && !done {
+            print "            -x|--xflag|word)"
+            print "                shift"
+            print "                ;;"
+            done = 1
+        }
+        { print }
+    ' "$fixture/commands/attach.sh" > "$fixture/commands/attach.sh.tmp"
+    mv "$fixture/commands/attach.sh.tmp" "$fixture/commands/attach.sh"
+
+    run wt_surface_check "$fixture" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"attach,a: flag -x is not listed in Options:"* ]]
+    [[ "$output" == *"attach,a: flag --xflag is not listed in Options:"* ]]
+}
+
+@test "wt_surface_list discovers the ROOT unit's -v,--version" {
+    run wt_surface_list "$WT_SCRIPT_DIR"
+    [[ "$output" == *"wt ROOT -v:0,--version:0"* ]]
+}
+
+@test "control: a command word dropped from wt --help's Commands list is caught on the ROOT unit" {
+    local fixture="$TEST_TMPDIR/control-root-command-missing"
+    _copy_wt_tree "$fixture"
+
+    awk '/^  doctor, doc/ { next } { print }' "$fixture/wt.sh" > "$fixture/wt.sh.tmp"
+    mv "$fixture/wt.sh.tmp" "$fixture/wt.sh"
+
+    run wt_surface_check "$fixture" wt
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"wt: command 'doctor' is not named on the page"* ]]
+    [[ "$output" == *"wt: command 'doc' is not named on the page"* ]]
+}
+
 @test "control: main() writing a stray warning or creating a dir before dispatch is caught by name" {
     local fixture="$TEST_TMPDIR/control-main-side-effect"
     _copy_wt_tree "$fixture"
