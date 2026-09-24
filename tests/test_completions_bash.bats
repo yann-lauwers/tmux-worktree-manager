@@ -114,3 +114,10 @@ run_completion() {
     [[ " ${COMPREPLY[*]} " == *" --name "* ]]
     [[ " ${COMPREPLY[*]} " != *" -n "* ]]
 }
+
+@test "completion: wt pr offers conflicts, its alias c, and resolve" {
+    run_completion "wt pr "
+    [[ " ${COMPREPLY[*]} " == *" conflicts "* ]]
+    [[ " ${COMPREPLY[*]} " == *" c "* ]]
+    [[ " ${COMPREPLY[*]} " == *" resolve "* ]]
+}
