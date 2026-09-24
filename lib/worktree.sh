@@ -92,7 +92,10 @@ worktree_occupant() {
 
     [[ -n "$path" ]] || return 0
     command -v cmux &>/dev/null || return 0
-    command -v jq &>/dev/null || return 0
+    if ! command -v jq &>/dev/null; then
+        note_optional_missing jq "the occupant check for this worktree is skipped"
+        return 0
+    fi
 
     cmux workspace list --json 2>/dev/null | jq -r --arg p "$path" '
         .workspaces[]?

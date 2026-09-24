@@ -86,6 +86,25 @@ log_error() {
     echo -e "${E_RED}wt${WT_CMD_NAME:+ $WT_CMD_NAME}:${E_NC} $*" >&2
 }
 
+# Note, once per tool per process, that an optional tool is missing at the point its absence
+# changes what the current command does — never at startup, which would print it whether or
+# not the missing tool's feature is ever reached this run. Silenced by WT_WARN_DEPS=false, the
+# same override main() used to gate the old blanket dependency block. bash 3.2 ships no
+# associative arrays, so the once-per-tool guard is an indirect variable named after the tool.
+# Args: $1 tool, $2 what degrades without it
+# Side: writes one stderr line per distinct $1 per process, unless WT_WARN_DEPS=false
+note_optional_missing() {
+    local tool="$1"
+    local degrades="$2"
+    local flag_var="_WT_NOTED_MISSING_${tool//[^a-zA-Z0-9]/_}"
+
+    [[ "${WT_WARN_DEPS:-true}" == "false" ]] && return 0
+    [[ -n "${!flag_var:-}" ]] && return 0
+    printf -v "$flag_var" '1'
+
+    log_warn "$tool not installed — $degrades (brew install $tool)"
+}
+
 log_debug() {
     if [[ "${WT_DEBUG:-}" == "1" ]]; then
         echo -e "${E_DIM}[DEBUG]${E_NC} $*" >&2

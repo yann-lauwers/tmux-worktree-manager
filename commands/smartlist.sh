@@ -78,13 +78,17 @@ cmd_smartlist() {
         # caps wall time at the slowest single call instead of their sum.
         local badge_dir=""
         if [[ "$smart_quick" != "true" && -n "$repo_nwo" ]]; then
-            badge_dir=$(mktemp -d "${TMPDIR:-/tmp}/wt-badges.XXXXXX")
-            local bidx=0
-            for entry in "${entries[@]}"; do
-                smart_pr_badge "${entry%%|*}" "$repo_nwo" > "$badge_dir/$bidx" &
-                bidx=$((bidx + 1))
-            done
-            wait
+            if command_exists gh; then
+                badge_dir=$(mktemp -d "${TMPDIR:-/tmp}/wt-badges.XXXXXX")
+                local bidx=0
+                for entry in "${entries[@]}"; do
+                    smart_pr_badge "${entry%%|*}" "$repo_nwo" > "$badge_dir/$bidx" &
+                    bidx=$((bidx + 1))
+                done
+                wait
+            else
+                note_optional_missing gh "PR status badges are skipped"
+            fi
         fi
 
         local idx=0
@@ -174,10 +178,13 @@ _smartlist_json() {
         local pr_lookup="skipped"
         if [[ "$smart_quick" != "true" ]]; then
             repo_nwo=$(smart_get_repo_nwo "$repo_root")
-            if [[ -n "$repo_nwo" ]] && command_exists gh; then
+            if [[ -z "$repo_nwo" ]]; then
+                pr_lookup="unavailable"
+            elif command_exists gh; then
                 pr_lookup="done"
             else
                 pr_lookup="unavailable"
+                note_optional_missing gh "pr_lookup reports unavailable"
             fi
         fi
 

@@ -32,6 +32,15 @@ teardown() {
     [[ -f "$file" ]]
 }
 
+@test "init_state_file creates a missing state dir" {
+    rm -rf "$WT_STATE_DIR"
+    init_state_file "testproj"
+    [[ -d "$WT_STATE_DIR" ]]
+    local file
+    file=$(state_file "testproj")
+    [[ -f "$file" ]]
+}
+
 @test "init_state_file is idempotent" {
     init_state_file "testproj"
     init_state_file "testproj"

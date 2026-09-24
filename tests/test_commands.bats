@@ -998,7 +998,7 @@ hooks:
     local shim home_dir
     shim="$(mktemp -d)"
     home_dir="$(mktemp -d)"
-    build_no_fzf_shim "$shim"
+    build_shim_without "$shim" fzf
 
     run --separate-stderr env -i HOME="$home_dir" PATH="$shim" \
         WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
@@ -1011,14 +1011,14 @@ hooks:
 }
 
 @test "wt db bogus: unknown subcommand, exit 2, empty stdout, stderr names 'wt db --help' (C8)" {
-    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db bogus
     [[ "$status" -eq 2 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
 }
 
 @test "bare wt db: missing subcommand, exit 2, empty stdout, usage line on stderr (C8)" {
-    WT_WARN_DEPS=false run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
+    run --separate-stderr "$WT_SCRIPT_DIR/wt.sh" db
     [[ "$status" -eq 2 ]]
     [[ -z "$output" ]]
     [[ "$stderr" == "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]" ]]
@@ -1030,6 +1030,77 @@ hooks:
     [[ -z "$output" ]]
     [[ "$stderr" == *"wt create: unknown option '--bogus'"* ]]
     [[ "$stderr" == *"see 'wt create --help'"* ]]
+}
+
+# ===== C1-C5: the same usage error — exact stderr, empty stdout, exit 2, no
+# WT_CONFIG_DIR/WT_DATA_DIR written — holds under a fresh HOME with fzf, jq
+# and gh all missing from PATH, whichever single one of them is missing, and
+# with every one of them installed. A subcommand's own parser dies before any
+# handler body ever reaches for an optional tool, so none of this changes the
+# wording main()'s dispatch and each handler's die_usage/die_unknown_option
+# already print. =====
+
+# Run wt.sh under a PATH missing the named optional tools, with a fresh empty
+# HOME and WT_CONFIG_DIR/WT_DATA_DIR beneath it, WT_WARN_DEPS unset.
+# Args: $1 space-separated tools to leave out, $@ (from $2) wt's argv
+# Side: bats `run --separate-stderr`; sets probe_home to the fresh HOME
+_run_usage_without() {
+    local missing="$1"
+    shift
+    local shim
+    shim="$(mktemp -d)"
+    probe_home="$(mktemp -d)"
+    # shellcheck disable=SC2086  # $missing is a word list
+    build_shim_without "$shim" $missing
+    run --separate-stderr env -i HOME="$probe_home" PATH="$shim" \
+        WT_CONFIG_DIR="$probe_home/config" WT_DATA_DIR="$probe_home/data" \
+        "$WT_SCRIPT_DIR/wt.sh" "$@"
+}
+
+# Assert the last _run_usage_without was a clean usage error: exit 2, nothing
+# on stdout, stderr exactly $1, and no config or data directory created.
+# Args: $1 expected stderr
+_assert_clean_usage_error() {
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "$1" ]]
+    [[ ! -e "$probe_home/config" ]]
+    [[ ! -e "$probe_home/data" ]]
+}
+
+@test "wt db bogus: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C1)" {
+    _run_usage_without "fzf jq gh" db bogus
+    _assert_clean_usage_error "wt db: unknown subcommand 'bogus' — see 'wt db --help'"
+}
+
+@test "bare wt db: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C2)" {
+    _run_usage_without "fzf jq gh" db
+    _assert_clean_usage_error "wt db: missing subcommand — see 'wt db --help'"$'\n'"usage: wt db <reset|url|dump|use-remote> [options]"
+}
+
+@test "wt create --bogus: no fzf/jq/gh, fresh home, exact usage line, exit 2, no config/data dir (C3)" {
+    _run_usage_without "fzf jq gh" create --bogus
+    _assert_clean_usage_error "wt create: unknown option '--bogus' — see 'wt create --help'"
+}
+
+@test "wt db bogus: the same stderr holds whichever single optional tool is missing (C4)" {
+    local tool
+    for tool in fzf jq gh; do
+        _run_usage_without "$tool" db bogus
+        _assert_clean_usage_error "wt db: unknown subcommand 'bogus' — see 'wt db --help'"
+    done
+}
+
+@test "wt db bogus: the same stderr holds with fzf, jq and gh all installed, under the real PATH (C5)" {
+    local home_dir
+    home_dir="$(mktemp -d)"
+
+    run --separate-stderr env HOME="$home_dir" PATH="$PATH" \
+        WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
+        "$WT_SCRIPT_DIR/wt.sh" db bogus
+    [[ "$status" -eq 2 ]]
+    [[ -z "$output" ]]
+    [[ "$stderr" == "wt db: unknown subcommand 'bogus' — see 'wt db --help'" ]]
 }
 
 # ===== C9: 'wt ports <word>' / 'wt pr <word>' still read a bogus word as a

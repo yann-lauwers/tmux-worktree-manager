@@ -57,21 +57,25 @@ stub_gh() {
     PATH="$TEST_TMPDIR/bin:$PATH"
 }
 
-# Build a PATH directory holding symlinks to every dependency wt.sh checks
-# for (git, yq, tmux, jq, gh) plus the coreutils its startup and library
-# sourcing need, but never fzf — so a test can pin behaviour that must hold
-# on a machine without it, like CI's ubuntu runners, regardless of whether
-# this machine happens to have it installed.
-# Args: $1 shim directory (created if absent)
+# Build a PATH directory holding symlinks to every tool wt.sh reaches for
+# (git, yq, tmux, fzf, jq, gh) plus the coreutils its startup and library
+# sourcing need, minus the named tools — so a test can pin behaviour that must
+# hold on a machine without them, like CI's ubuntu runners, whatever this
+# machine happens to have installed. A tool the machine lacks is simply absent.
+# Args: $1 shim directory (created if absent), $@ (from $2) tools to leave out
 # Side: writes symlinks into $1
-build_no_fzf_shim() {
+build_shim_without() {
     local shim="$1"
+    shift
     mkdir -p "$shim"
-    local u
-    for u in bash sh git yq tmux jq gh cat dirname readlink basename sed awk \
+    local u omit
+    for u in bash sh git yq tmux fzf jq gh cat dirname readlink basename sed awk \
         grep printf mkdir true rm mv cp ls mktemp date tr cut head tail sort \
         uniq wc find xargs env id whoami hostname sleep kill ps df du chmod \
         touch ln; do
+        for omit in "$@"; do
+            [[ "$u" == "$omit" ]] && continue 2
+        done
         local p
         p=$(command -v "$u" 2>/dev/null) || continue
         ln -sf "$p" "$shim/$u" 2>/dev/null

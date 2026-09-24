@@ -8,12 +8,14 @@ state_file() {
 }
 
 # Initialize state file if needed
+# Side: creates WT_STATE_DIR when missing
 init_state_file() {
     local project="$1"
     local file
     file=$(state_file "$project")
 
     if [[ ! -f "$file" ]]; then
+        ensure_dir "$WT_STATE_DIR"
         cat > "$file" << EOF
 # Runtime state for project: $project
 worktrees: {}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # tests/test_output_streams.bats - colour/hyperlink gating (per-stream tty check,
-# NO_COLOR, WT_COLOR=always), the shared not-found message, and check_dependencies'
-# stdout/stderr split.
+# NO_COLOR, WT_COLOR=always), the shared not-found message, and
+# check_required_dependencies'/note_optional_missing's stdout/stderr split.
 
 load test_helper
 
@@ -335,13 +335,13 @@ services: []"
     [[ -z "$output" ]]
 }
 
-# ===== check_dependencies: whole report to stderr, nothing to stdout (C10) =====
+# ===== check_required_dependencies: whole report to stderr, nothing to stdout (C10) =====
 #
 # Driven through the real `wt.sh` entry point rather than sourced directly:
 # wt.sh's own `[[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"` guard evaluates
 # false-and-short-circuits under `source`, which set -e (on since wt.sh's own
 # top line) turns into an immediate exit of the sourcing shell before
-# check_dependencies would ever run.
+# check_required_dependencies would ever run.
 
 # Build a PATH directory holding every tool in the system bin directories
 # plus git and yq, minus the ones named — a PATH of that directory alone hides
@@ -366,7 +366,7 @@ _path_without() {
     done
 }
 
-@test "check_dependencies writes the whole report to stderr, nothing to stdout (C10)" {
+@test "check_required_dependencies writes the whole report to stderr, nothing to stdout (C10)" {
     local shim="$TEST_TMPDIR/shim"
     local home_dir="$TEST_TMPDIR/home-deps1"
     mkdir -p "$home_dir"
@@ -378,16 +378,35 @@ _path_without() {
     [[ "$stderr" == *"tmux"* ]]
 }
 
-@test "check_dependencies: optional-deps warning also lands entirely on stderr" {
-    local shim="$TEST_TMPDIR/shim2"
-    local home_dir="$TEST_TMPDIR/home-deps2"
-    mkdir -p "$home_dir"
-    _path_without "$shim" fzf jq gh
-    run --separate-stderr env PATH="$shim" HOME="$home_dir" "$WT_SCRIPT_DIR/wt.sh" ls -q
+# ===== note_optional_missing: stderr only, once per tool per process, silenced by WT_WARN_DEPS=false =====
+
+@test "note_optional_missing writes to stderr, nothing to stdout" {
+    run --separate-stderr note_optional_missing fzf "interactive picker falls back to a numbered list"
     [[ "$status" -eq 0 ]]
-    [[ "$output" != *"Optional dependencies"* ]]
-    [[ "$stderr" == *"Optional dependencies missing"* ]]
+    [[ -z "$output" ]]
     [[ "$stderr" == *"fzf"* ]]
+}
+
+@test "note_optional_missing fires once per tool per process" {
+    run --separate-stderr bash -c '
+        source "'"$WT_SCRIPT_DIR"'/lib/utils.sh"
+        note_optional_missing fzf "reason one"
+        note_optional_missing fzf "reason two"
+    '
+    [[ "$status" -eq 0 ]]
+    local count
+    count=$(printf '%s' "$stderr" | grep -c "fzf")
+    [[ "$count" -eq 1 ]]
+}
+
+@test "note_optional_missing is silenced by WT_WARN_DEPS=false" {
+    run --separate-stderr env WT_WARN_DEPS=false bash -c '
+        source "'"$WT_SCRIPT_DIR"'/lib/utils.sh"
+        note_optional_missing fzf "interactive picker falls back to a numbered list"
+    '
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+    [[ -z "$stderr" ]]
 }
 
 # ===== C6: --help documents WT_COLOR and NO_COLOR =====

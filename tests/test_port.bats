@@ -112,6 +112,13 @@ teardown() {
     [[ -f "$(slots_file)" ]]
 }
 
+@test "init_slots_file creates a missing state dir" {
+    rm -rf "$WT_STATE_DIR"
+    init_slots_file
+    [[ -d "$WT_STATE_DIR" ]]
+    [[ -f "$(slots_file)" ]]
+}
+
 @test "init_slots_file is idempotent" {
     init_slots_file
     init_slots_file

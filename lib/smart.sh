@@ -185,6 +185,8 @@ smart_pick_worktree() {
         die "Multiple worktrees — pass a name: wt open <branch>"
     fi
 
+    note_optional_missing fzf "the picker falls back to this numbered list"
+
     echo -e "${BOLD}Worktrees:${NC}"
     echo ""
     local i=1

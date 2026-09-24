@@ -130,7 +130,8 @@ Environment:
   WT_CONFIG_DIR      Config directory (default: ~/.config/wt)
   WT_DATA_DIR        State, logs and generated data (default: ~/.local/share/wt)
   WT_DEBUG           Set to 1 to print [DEBUG] lines (default: unset)
-  WT_WARN_DEPS       Set to false to silence optional-dependency warnings (default: true)
+  WT_WARN_DEPS       Set to false to silence the notes fzf/jq/gh print when a command
+                    reaches for one that isn't installed (default: true)
   WT_COLOR           Set to 'always' to force colour and hyperlinks even when piped, overriding
                     NO_COLOR (default: unset)
   NO_COLOR           Set (non-empty) to disable colour and hyperlinks even on a terminal (default: unset)
@@ -152,8 +153,12 @@ show_version() {
     echo "wt $(resolve_version "$WT_SCRIPT_DIR")"
 }
 
-# Check dependencies
-check_dependencies() {
+# Check the three dependencies every command needs (git, yq, tmux). fzf, jq
+# and gh are optional — each degrades one command's feature rather than the
+# whole tool, so their absence is noted at the call site that needs them
+# (note_optional_missing, lib/utils.sh) rather than checked here, and never
+# blocks a usage-error exit or a --help page.
+check_required_dependencies() {
     local missing=()
 
     if ! command_exists git; then
@@ -175,26 +180,6 @@ check_dependencies() {
         done
         exit 1
     fi
-
-    # Optional dependencies (for smart commands)
-    local optional_missing=()
-    if ! command_exists fzf; then
-        optional_missing+=("fzf (for interactive pickers: brew install fzf)")
-    fi
-    if ! command_exists jq; then
-        optional_missing+=("jq (for JSON parsing: brew install jq)")
-    fi
-    if ! command_exists gh; then
-        optional_missing+=("gh (for PR status: brew install gh)")
-    fi
-
-    if [[ ${#optional_missing[@]} -gt 0 && "${WT_WARN_DEPS:-true}" != "false" ]]; then
-        log_warn "Optional dependencies missing (some smart commands may not work):"
-        for dep in "${optional_missing[@]}"; do
-            echo "  - $dep" >&2
-        done
-        echo "" >&2
-    fi
 }
 
 # True when the arguments name a request for a command's or a subcommand's own
@@ -202,7 +187,7 @@ check_dependencies() {
 #   "-h"/"--help" as the command itself (the top-level page);
 #   "<command> -h|--help" for any command word, with no lookup — the
 #     handler's own -h|--help arm, or main()'s unknown-command arm, answers
-#     with no dependency on check_dependencies/init_config_dirs having run;
+#     with no dependency on check_required_dependencies having run;
 #   "<command> <word> -h|--help" where <word> does not start with "-" and a
 #     cmd_<command>_* function exists, discovered via declare -F rather than
 #     a hand-kept list — covers wt db reset --help, wt pr conflicts --help,
@@ -212,11 +197,11 @@ check_dependencies() {
 #     alias of a subcommand-bearing command (none exists today) would answer
 #     subcommand help only after the dependency check — the surface test's
 #     no-yq/no-tmux probe would report it.
-# When true, main() skips check_dependencies and init_config_dirs and
-# dispatches as normal — the handler's own -h|--help arm is what actually
-# prints the page. exec and send carry no cmd_exec_*/cmd_send_* functions, so
-# the third rule never fires for them: `wt exec <branch> <cmd> -h` reaches the
-# wrapped command's own "-h" rather than being swallowed here.
+# When true, main() skips check_required_dependencies and dispatches as
+# normal — the handler's own -h|--help arm is what actually prints the page.
+# exec and send carry no cmd_exec_*/cmd_send_* functions, so the third rule
+# never fires for them: `wt exec <branch> <cmd> -h` reaches the wrapped
+# command's own "-h" rather than being swallowed here.
 # Args: $1 command word, $@ (from $2) the remaining arguments
 # Out: none (boolean via exit status)
 _wt_help_requested() {
@@ -241,17 +226,20 @@ _wt_help_requested() {
     return 1
 }
 
-# Resolves the command word to its handler function before check_dependencies
-# and init_config_dirs run, so an unknown command refuses with nothing but
-# its usage line and touches no dependency check or disk write; the resolved
-# handler then runs after those two, unless the word is a help request.
+# Resolves the command word to its handler function before
+# check_required_dependencies runs, so an unknown command refuses with
+# nothing but its usage line and touches no dependency check or disk write;
+# the resolved handler then runs after it, unless the word is a help
+# request. Neither this function nor check_required_dependencies creates any
+# directory — a handler that writes state creates its own (init_state_file,
+# init_slots_file), so a usage error never leaves WT_CONFIG_DIR/WT_DATA_DIR
+# behind.
 # Args: $@ wt's own argv
 # Side: sets WT_CMD_NAME to the resolved command's canonical word (never the
 #   alias typed) — the handler's suffix, or the word itself for ls/rm/prune —
 #   so every die/log_error from here on reads "wt <that word>: ";
-#   check_dependencies, init_config_dirs (unless help was requested);
-#   die_usage / exit 2 on a bad command or bad 'help' invocation; runs the
-#   resolved handler
+#   check_required_dependencies (unless help was requested); die_usage /
+#   exit 2 on a bad command or bad 'help' invocation; runs the resolved handler
 main() {
     # Handle no arguments
     if [[ $# -eq 0 ]]; then
@@ -384,12 +372,10 @@ main() {
     # Only arms whose handler is shared or differently named set it above.
     WT_CMD_NAME="${WT_CMD_NAME:-${handler#cmd_}}"
 
-    # A command or subcommand's own --help/-h skips dependency checks and
-    # directory creation — reading help must never require yq or tmux to be
-    # installed, or write anything to disk.
+    # A command or subcommand's own --help/-h skips the dependency check —
+    # reading help must never require yq or tmux to be installed.
     if ! _wt_help_requested "$command" "$@"; then
-        check_dependencies
-        init_config_dirs
+        check_required_dependencies
     fi
 
     if [[ ${#prefix_args[@]} -gt 0 ]]; then

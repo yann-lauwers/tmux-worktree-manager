@@ -305,15 +305,16 @@ _wt_run_help_probe() {
         bash "$root/wt.sh" "$@" >"$out_file" 2>&1
 }
 
-# Run `wt <words...>` under the real PATH and an isolated, empty HOME/config
+# Run `wt <words...>` under the given PATH and an isolated, empty HOME/config
 # tree, capturing stdout and stderr to separate files (never through a pipe —
 # `run --separate-stderr` is a bats-core extension and the last pipeline stage
 # would swallow wt.sh's own exit status either way).
-# Args: $1 root, $2 isolated home dir, $3 stdout file, $4 stderr file, $@ words
+# Args: $1 root, $2 PATH to run under, $3 isolated home dir, $4 stdout file,
+#   $5 stderr file, $@ words
 _wt_run_usage_probe() {
-    local root="$1" home_dir="$2" out_file="$3" err_file="$4"
-    shift 4
-    env -i HOME="$home_dir" PATH="$PATH" \
+    local root="$1" path="$2" home_dir="$3" out_file="$4" err_file="$5"
+    shift 5
+    env -i HOME="$home_dir" PATH="$path" \
         WT_CONFIG_DIR="$home_dir/config" WT_DATA_DIR="$home_dir/data" \
         bash "$root/wt.sh" "$@" >"$out_file" 2>"$err_file" </dev/null
 }
@@ -603,10 +604,12 @@ wt_surface_check() {
     local root="$1"
     local only_invoke="${2:-}"
     local violation_count=0
-    local shim home_dir
+    local shim home_dir no_optional_shim
     shim=$(mktemp -d)
     home_dir=$(mktemp -d)
     _wt_build_help_shim "$shim"
+    no_optional_shim=$(mktemp -d)
+    build_shim_without "$no_optional_shim" fzf jq gh
 
     local -a units=()   # "kind|invoke-words|display-words|flags-csv|subwords-csv"
     while IFS= read -r line; do
@@ -714,7 +717,7 @@ wt_surface_check() {
         uo_home=$(mktemp -d)
         uo_out=$(mktemp)
         uo_err=$(mktemp)
-        _wt_run_usage_probe "$root" "$uo_home" "$uo_out" "$uo_err" "${probe_words[@]}" --surface-no-such-flag
+        _wt_run_usage_probe "$root" "$PATH" "$uo_home" "$uo_out" "$uo_err" "${probe_words[@]}" --surface-no-such-flag
         local uo_rc=$?
         if [[ $uo_rc -ne 2 ]]; then
             echo "VIOLATION ${u_display}: an unknown option exited ${uo_rc}, want 2"
@@ -727,7 +730,37 @@ wt_surface_check() {
             violation_count=$((violation_count + 1))
         fi
 
-        rm -f "$out_h" "$out_hh" "$uo_out" "$uo_err"
+        # Unknown option, second: the same probe under a PATH holding no fzf, jq or gh
+        # (WT_WARN_DEPS left unset), the shape a usage error must keep on a machine
+        # missing every optional tool too — exit 2, empty stdout, stderr EXACTLY the
+        # standard line (an extra note or warning line fails this, unlike the grep -qF
+        # containment check above), and neither WT_CONFIG_DIR nor WT_DATA_DIR created.
+        local nf_home nf_out nf_err
+        nf_home=$(mktemp -d)
+        nf_out=$(mktemp)
+        nf_err=$(mktemp)
+        _wt_run_usage_probe "$root" "$no_optional_shim" "$nf_home" "$nf_out" "$nf_err" \
+            "${probe_words[@]}" --surface-no-such-flag
+        local nf_rc=$?
+        if [[ $nf_rc -ne 2 ]]; then
+            echo "VIOLATION ${u_display}: (no fzf/jq/gh) an unknown option exited ${nf_rc}, want 2"
+            violation_count=$((violation_count + 1))
+        fi
+        if [[ -s "$nf_out" ]]; then
+            echo "VIOLATION ${u_display}: (no fzf/jq/gh) unknown-option stdout is not empty"
+            violation_count=$((violation_count + 1))
+        fi
+        if [[ "$(cat "$nf_err")" != "$expected_line" ]]; then
+            echo "VIOLATION ${u_display}: (no fzf/jq/gh) unknown-option stderr is not exactly the standard line"
+            violation_count=$((violation_count + 1))
+        fi
+        if [[ -d "$nf_home/config" || -d "$nf_home/data" ]]; then
+            echo "VIOLATION ${u_display}: (no fzf/jq/gh) unknown option created \$home/config or \$home/data"
+            violation_count=$((violation_count + 1))
+        fi
+        rm -rf "$nf_home"
+
+        rm -f "$out_h" "$out_hh" "$uo_out" "$uo_err" "$nf_out" "$nf_err"
     done
 
     if [[ $violation_count -gt 0 ]]; then
