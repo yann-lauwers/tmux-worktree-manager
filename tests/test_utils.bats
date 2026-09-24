@@ -248,9 +248,9 @@ teardown() {
 }
 
 @test "log_error outputs to stderr" {
+    unset WT_CMD_NAME
     run log_error "error message"
-    [[ "$output" == *"ERROR"* ]]
-    [[ "$output" == *"error message"* ]]
+    [[ "$output" == "wt: error message" ]]
 }
 
 @test "log_debug is silent without WT_DEBUG" {

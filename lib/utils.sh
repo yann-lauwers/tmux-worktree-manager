@@ -78,8 +78,12 @@ log_warn() {
     echo -e "${E_YELLOW}[WARN]${E_NC} $*" >&2
 }
 
+# Log an error, prefixed with the command word main() resolved — "wt <cmd>: " —
+# or plain "wt: " when no command was resolved (WT_CMD_NAME unset, e.g. a
+# failure inside main() itself before dispatch).
+# Side: writes to stderr; reads WT_CMD_NAME
 log_error() {
-    echo -e "${E_RED}[ERROR]${E_NC} $*" >&2
+    echo -e "${E_RED}wt${WT_CMD_NAME:+ $WT_CMD_NAME}:${E_NC} $*" >&2
 }
 
 log_debug() {
@@ -110,7 +114,8 @@ spinner() {
     printf "\r"
 }
 
-# Die with error message
+# Die with an error message, prefixed per log_error's WT_CMD_NAME rule.
+# Side: writes to stderr (via log_error), exits 1
 die() {
     log_error "$@"
     exit 1
