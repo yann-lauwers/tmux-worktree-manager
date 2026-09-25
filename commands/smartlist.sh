@@ -197,6 +197,16 @@ _smartlist_json() {
             json_set "${base}.repo" null
         fi
         json_set "${base}.pr_lookup" str "$pr_lookup"
+
+        # the project's slot capacity, counted by wt's own claim code: a caller
+        # deciding whether a create can succeed reads it here, never from slots.yaml
+        local max_slots cap_max cap_claimed cap_stale cap_free
+        max_slots=$(yaml_get "$config" ".ports.reserved.slots" "3")
+        read -r cap_max cap_claimed cap_stale cap_free <<< "$(slot_capacity "$project" "$max_slots")"
+        json_set "${base}.slots.max" int "$cap_max"
+        json_set "${base}.slots.claimed" int "$cap_claimed"
+        json_set "${base}.slots.stale" int "$cap_stale"
+        json_set "${base}.slots.free" int "$cap_free"
         json_set "${base}.worktrees" arr
 
         local entries=()
@@ -278,8 +288,8 @@ Options:
   -h, --help              Show this page
 
 Output (--json):
-  { projects: [ { project, repo_path, repo, pr_lookup, worktrees: [ { branch,
-    path, slot, managed, pr } ] } ], total }
+  { projects: [ { project, repo_path, repo, pr_lookup, slots, worktrees: [
+    { branch, path, slot, managed, pr } ] } ], total }
 
   Every configured project whose repo_path exists is listed, including one
   with no worktrees (worktrees: []). repo is the owner/name string, or null
@@ -287,6 +297,10 @@ Output (--json):
   when repo or gh cannot be resolved, else "done". slot is an int or null;
   managed is true once a slot is recorded. pr is null or
   { number, state, draft, url } (state is gh's own OPEN/MERGED/CLOSED).
+  slots is { max, claimed, stale, free }: max is the project's
+  ports.reserved.slots, claimed the slots recorded below it, stale those held
+  by an entry whose directory is gone (create reclaims them when full), and
+  free what `wt create` can claim — unclaimed plus stale.
 
 Examples:
   wt ls

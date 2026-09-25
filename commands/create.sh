@@ -234,8 +234,10 @@ Linear API key lookup (first found wins):
 
 Exit codes:
   0  success
-  1  no project detected, no available slot, or worktree creation failed
+  1  no project detected, or worktree creation failed
   2  usage error: unknown option or missing argument
+  75 no available slot: every slot is claimed (retry once one frees)
+  76 a slot is free but every free slot has a port in use on this machine (free the port)
 EOF
 }
 
@@ -245,6 +247,7 @@ EOF
 # Args: $1 project, $2 branch, $3 max_slots, $4 port_base, $5 services_per_slot
 # Out: the claimed slot number
 # Side: on exhaustion, releases stale slots and deletes their state entries
+# Returns: 0 claimed; 1 every slot claimed; 2 unclaimed slots exist, each with a port in use
 claim_slot_reclaiming() {
     local project="$1"
     local branch="$2"
@@ -252,11 +255,14 @@ claim_slot_reclaiming() {
     local port_base="$4"
     local services_per_slot="$5"
 
-    local slot
-    if slot=$(claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot"); then
+    local slot rc=0
+    slot=$(claim_slot "$project" "$branch" "$max_slots" "$port_base" "$services_per_slot") || rc=$?
+    if (( rc == 0 )); then
         echo "$slot"
         return 0
     fi
+    # ports in use are not freed by reclaiming a stale entry: that answer stands
+    (( rc == 2 )) && return 2
 
     local reclaimed
     reclaimed=$(reclaim_stale_worktrees "$project")
@@ -335,9 +341,19 @@ _cmd_create_core() {
 
     # Claim a slot for reserved ports (checks system port availability); on
     # exhaustion, reclaims stale entries of this project and retries once.
-    local slot
-    if ! slot=$(claim_slot_reclaiming "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot"); then
-        die "No available slots. Maximum $PROJECT_RESERVED_SLOTS concurrent worktrees with reserved ports, or all slots have ports in use. Stop or delete an existing worktree, or free the conflicting ports."
+    local slot claim_rc=0
+    slot=$(claim_slot_reclaiming "$project" "$branch" "$PROJECT_RESERVED_SLOTS" "$PROJECT_RESERVED_PORT_MIN" "$services_per_slot") || claim_rc=$?
+    if (( claim_rc == 2 )); then
+        # 76: a slot is free and its ports are held by another process — deleting a worktree
+        # frees nothing, so a caller pages rather than waiting on a slot
+        log_error "No slot with free ports. Every unclaimed slot of the $PROJECT_RESERVED_SLOTS has a port already in use on this machine. Free the conflicting ports."
+        exit 76
+    fi
+    if (( claim_rc != 0 )); then
+        # 75 (EX_TEMPFAIL): a caller holds and retries once a slot frees, which it
+        # cannot tell from a create that failed for any other reason under exit 1
+        log_error "No available slots. All $PROJECT_RESERVED_SLOTS concurrent worktrees with reserved ports are claimed. Stop or delete an existing worktree."
+        exit 75
     fi
     _create_cleanup_project="$project"
     _create_cleanup_branch="$branch"
