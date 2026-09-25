@@ -1152,3 +1152,41 @@ _assert_clean_usage_error() {
     [[ -z "$output" ]]
     [[ "$stderr" == *"Not in a worktree and no branch specified"* ]]
 }
+
+@test "create: every slot claimed exits 75, creating nothing, so a caller holds instead of failing" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    local d
+    for b in a b c; do
+        d="$TEST_TMPDIR/live-$b"; mkdir -p "$d"
+        claim_slot "testproj" "feature/$b" 3
+        create_worktree_state "testproj" "feature/$b" "$d" "$(get_slot_for_worktree testproj "feature/$b")"
+    done
+    run --separate-stderr _cmd_create_core "feature/new" "" "testproj" "true" ""
+    [[ "$status" -eq 75 ]]
+    [[ "$stderr" == *"No available slots"* ]]
+    ! git -C "$TEST_REPO" rev-parse --verify --quiet refs/heads/feature/new
+}
+
+@test "create: a free slot whose ports are in use exits 76, not 75, so a caller frees the port" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    port_in_use() { return 0; }   # every candidate port is held by another process
+    run --separate-stderr _cmd_create_core "feature/ports" "" "testproj" "true" ""
+    [[ "$status" -eq 76 ]]
+    [[ "$stderr" == *"No slot with free ports"* ]]
+    ! git -C "$TEST_REPO" rev-parse --verify --quiet refs/heads/feature/ports
+}
+
+@test "claim_slot: 2 when every unclaimed slot is skipped for ports, 1 when every slot is claimed" {
+    _create_test_config "testproj"
+    load_project_config "testproj"
+    port_in_use() { return 0; }
+    run claim_slot "testproj" "feature/p" 3 3000 1
+    [[ "$status" -eq 2 ]]
+    port_in_use() { return 1; }
+    claim_slot "testproj" "feature/a" 2
+    claim_slot "testproj" "feature/b" 2
+    run claim_slot "testproj" "feature/c" 2
+    [[ "$status" -eq 1 ]]
+}

@@ -95,12 +95,12 @@ services: []"
     [[ "$total" == "0" ]]
 }
 
-@test "ls --json: project object key set is project,repo_path,repo,pr_lookup,worktrees" {
+@test "ls --json: project object key set is project,repo_path,repo,pr_lookup,slots,worktrees" {
     _ls_config "testproj"
     run cmd_smartlist -q --json
     [[ "$status" -eq 0 ]]
     keys=$(printf '%s' "$output" | yq -p json -o json '.projects[0] | keys | join(",")')
-    [[ "$keys" == '"project,repo_path,repo,pr_lookup,worktrees"' ]]
+    [[ "$keys" == '"project,repo_path,repo,pr_lookup,slots,worktrees"' ]]
 }
 
 @test "ls --json: -q sets pr_lookup to skipped and pr to null" {
@@ -317,4 +317,57 @@ services: []"
     [[ "$output" == *"--json"* ]]
     [[ "$output" == *"Output (--json):"* ]]
     [[ "$output" == *"same"* ]]
+}
+
+# ===== slots: what `wt create` can claim, counted by the claim code =====
+
+_slots_config() {
+    create_yaml_fixture "$WT_PROJECTS_DIR/testproj.yaml" "name: testproj
+repo_path: $TEST_REPO
+ports:
+  reserved:
+    slots: 3
+services: []"
+}
+
+@test "ls --json: slots reports max, claimed, stale and free for an empty project" {
+    _slots_config
+    run cmd_smartlist -q --json
+    [[ "$status" -eq 0 ]]
+    slots=$(printf '%s' "$output" | yq -p json -o json -I0 '.projects[0].slots')
+    [[ "$slots" == '{"max":3,"claimed":0,"stale":0,"free":3}' ]]
+}
+
+@test "ls --json: a claimed slot is not free, and a stale one counts as free" {
+    _slots_config
+    local live_dir; live_dir="$(dirname "$TEST_REPO")/wt-live"
+    mkdir -p "$live_dir"
+    claim_slot "testproj" "feature/live" 3
+    create_worktree_state "testproj" "feature/live" "$live_dir" 0
+    claim_slot "testproj" "feature/gone" 3
+    create_worktree_state "testproj" "feature/gone" "/nonexistent/wt-gone" 1
+    run cmd_smartlist -q --json
+    [[ "$status" -eq 0 ]]
+    slots=$(printf '%s' "$output" | yq -p json -o json -I0 '.projects[0].slots')
+    [[ "$slots" == '{"max":3,"claimed":2,"stale":1,"free":2}' ]]
+}
+
+@test "ls --json: a slot recorded above max is neither claimed nor free" {
+    _slots_config
+    yq -i '.slots.testproj.old = 7' "$(slots_file)" 2>/dev/null || { init_slots_file; yq -i '.slots.testproj.old = 7' "$(slots_file)"; }
+    run cmd_smartlist -q --json
+    free=$(printf '%s' "$output" | yq -p json '.projects[0].slots.free')
+    claimed=$(printf '%s' "$output" | yq -p json '.projects[0].slots.claimed')
+    [[ "$claimed" == "0" && "$free" == "3" ]]
+}
+
+@test "slot_capacity agrees with claim_slot: free 0 means the next claim fails" {
+    _slots_config
+    claim_slot "testproj" "feature/a" 3
+    claim_slot "testproj" "feature/b" 3
+    claim_slot "testproj" "feature/c" 3
+    local cap; cap=$(slot_capacity "testproj" 3)
+    [[ "$cap" == "3 3 0 0" ]]
+    run claim_slot "testproj" "feature/d" 3
+    [[ "$status" -ne 0 ]]
 }

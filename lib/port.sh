@@ -213,7 +213,8 @@ get_slot_for_worktree() {
 }
 
 # Claim a slot for a worktree (with file locking)
-# Returns the slot number or fails
+# Returns the slot number or fails: 1 when every slot is claimed, 2 when an unclaimed slot
+# exists and each such slot has a port already in use on the system
 # Optional port_base and services_per_slot enable system port availability checks
 claim_slot() {
     local project="$1"
@@ -257,7 +258,7 @@ _claim_slot_locked() {
 
     # Mark used slots
     local assignments
-    assignments=$(yq -r ".slots.\"$project\" // {} | to_entries | .[] | .value" "$file" 2>/dev/null)
+    assignments=$(_slot_assignments "$project" "$file")
 
     while read -r slot; do
         [[ -z "$slot" ]] && continue
@@ -267,6 +268,7 @@ _claim_slot_locked() {
     done <<< "$assignments"
 
     # Find first available (not claimed by another worktree AND ports free on system)
+    local skipped_for_ports=0
     for ((i = 0; i < max_slots; i++)); do
         if [[ "${used_slots[$i]}" == "0" ]]; then
             # If port_base provided, verify all ports for this slot are free
@@ -281,6 +283,7 @@ _claim_slot_locked() {
                     fi
                 done
                 if [[ "$ports_ok" != "true" ]]; then
+                    skipped_for_ports=1
                     continue
                 fi
             fi
@@ -292,8 +295,64 @@ _claim_slot_locked() {
         fi
     done
 
-    # No slots available
+    # No slot claimable: 2 when an unclaimed slot was skipped only for its ports — a caller
+    # frees a port, not a worktree — else 1, every slot claimed
+    (( skipped_for_ports )) && return 2
     return 1
+}
+
+# Print every slot number recorded for a project, one per line — the one reading
+# both claim_slot and slot_capacity count from, so "free" never disagrees with a claim.
+# Args: $1 project, $2 slots file
+# Out: slot numbers, one per line (may include non-numeric junk the callers skip)
+_slot_assignments() {
+    yq -r ".slots.\"$1\" // {} | to_entries | .[] | .value" "$2" 2>/dev/null
+}
+
+# Report a project's slot capacity the way create counts it: slots claimed below
+# max_slots, how many of those belong to stale state entries (a recorded directory
+# that no longer exists, which create reclaims on exhaustion), and the free count
+# create can reach — unclaimed slots plus the stale ones it would reclaim. Port
+# availability on the system is not counted: create skips a busy port at claim time.
+# Args: $1 project, $2 max_slots
+# Out: "<max> <claimed> <stale> <free>" on one line
+slot_capacity() {
+    local project="$1"
+    local max_slots="${2:-3}"
+
+    local file
+    file=$(slots_file)
+
+    local claimed=0 stale=0
+    local -a held=()
+    if [[ -f "$file" ]]; then
+        local slot
+        while read -r slot; do
+            [[ "$slot" =~ ^[0-9]+$ ]] || continue
+            (( slot < max_slots )) || continue
+            [[ " ${held[*]-} " == *" $slot "* ]] && continue
+            held+=("$slot")
+            claimed=$((claimed + 1))
+        done < <(_slot_assignments "$project" "$file")
+
+        local sanitized_branch wt_path branch key slot_of
+        while read -r sanitized_branch; do
+            [[ -z "$sanitized_branch" ]] && continue
+            wt_path=$(yaml_get "$(state_file "$project")" ".worktrees.\"$sanitized_branch\".path" "")
+            [[ -n "$wt_path" && ! -d "$wt_path" ]] || continue
+            branch=$(yaml_get "$(state_file "$project")" ".worktrees.\"$sanitized_branch\".branch" "$sanitized_branch")
+            key=$(sanitize_branch_name "$branch")
+            slot_of=$(yq -r ".slots.\"$project\".\"$key\" // \"\"" "$file" 2>/dev/null)
+            if [[ "$slot_of" =~ ^[0-9]+$ ]] && (( slot_of < max_slots )); then
+                stale=$((stale + 1))
+            fi
+        done < <(list_worktree_states "$project")
+    fi
+
+    local free=$(( max_slots - claimed + stale ))
+    (( free < 0 )) && free=0
+    (( free > max_slots )) && free=$max_slots
+    echo "$max_slots $claimed $stale $free"
 }
 
 # Release a slot (with file locking)
