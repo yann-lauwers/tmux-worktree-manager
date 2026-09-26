@@ -5,7 +5,8 @@
 #   wt delete                        # fzf picker (multi-select)
 #   wt delete -p nexus               # fzf picker, one project
 #   wt delete <branch>               # direct delete
-#   wt delete <branch> --force       # skip confirmation
+#   wt delete <branch> --force       # skip confirmation, force both git guards
+#   wt delete <branch> -y            # skip confirmation, keep both git guards
 #   wt rm ...                        # alias for delete
 
 cmd_delete() {
@@ -98,8 +99,9 @@ cmd_delete() {
         log_warn "Worktree directory not found, cleaning up orphaned state..."
     fi
 
-    # Confirmation
-    if [[ "$force" -eq 0 ]]; then
+    # Confirmation: -y answers it for a caller with no terminal, and — unlike --force — leaves
+    # both git guards on, so a dirty, untracked or locked tree is refused and stays
+    if [[ "$force" -eq 0 && "$auto_yes" -eq 0 ]]; then
         if ! confirm "Delete worktree for branch '$branch'?"; then
             log_info "Aborted"
             return 2
@@ -303,7 +305,9 @@ ones first, dirty worktrees flagged \`⚠N uncommitted\`). With --merged the pic
 limited to worktrees whose PR is merged/closed; add -y to delete them all with no
 prompt. The picker and -y always force both git guards below, the same as -f.
 
-A direct \`wt ${cmd} <branch>\` prompts for confirmation unless -f/--force is given.
+A direct \`wt ${cmd} <branch>\` prompts for confirmation unless -f/--force or -y is given.
+With -y and no --force it answers the prompt and keeps both git guards: a tree with
+uncommitted, untracked or locked content is refused (exit 1) and stays.
 EOF
     _wt_delete_guard_text
     cat << EOF
@@ -316,8 +320,9 @@ Arguments:
 Options:
   -f, --force       Skip confirmation and force both git guards (default: off)
   -m, --merged      Restrict the picker to merged/closed-PR worktrees (default: off)
-  -y, --yes         Non-interactive: delete every matching worktree, pairs with --merged (default:
-                     off)
+  -y, --yes         Non-interactive (default: off). On the picker, delete every matching
+                     worktree (pairs with --merged). On a direct <branch>, answer the prompt
+                     and keep both git guards
   --keep-branch     Don't delete the git branch (default: off)
   -p, --project <name>   Project to act on (default: detected from the current directory)
   -h, --help        Show this page
@@ -327,6 +332,7 @@ Writes state: removes the worktree's state entry and releases its port slot.
 Examples:
   wt ${cmd} feature/auth               # direct delete, prompts first
   wt ${cmd} feature/auth --force       # skip confirmation, force both guards
+  wt ${cmd} feature/auth -y            # skip confirmation, refuse a dirty or locked tree
   wt ${cmd} --merged -y                # delete all merged/closed, no prompt
 
 Exit codes:
