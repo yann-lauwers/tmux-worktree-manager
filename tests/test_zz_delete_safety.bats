@@ -15,12 +15,11 @@
 
 load test_helper
 
+# `run !` asserts a nonzero exit. A bare `! cmd` is ignored by errexit anywhere but a test's
+# last line, so it asserts nothing.
+bats_require_minimum_version 1.5.0
+
 setup() {
-    # bats runs test bodies with `set -e` and leaks the option to the next test. These
-    # tests drive delete paths that legitimately return nonzero (refusals, `die`), and a
-    # leaked errexit trips latent `((i++))` bugs in later suites (e.g. execute_setup).
-    # Reset from setup — the only point bats lets the change reach the body and leak out.
-    set +e
     _ORIG_CWD="$PWD"
     setup_test_dirs
     load_lib "utils"
@@ -118,7 +117,21 @@ _commit_in() {
     run remove_worktree "feat/forcedirty" 1 0 "$TEST_REPO"
 
     [[ "$status" -eq 0 ]]                               # force removes it
-    ! worktree_exists "feat/forcedirty" "$TEST_REPO"
+    run ! worktree_exists "feat/forcedirty" "$TEST_REPO"
+}
+
+@test "SHARP EDGE: remove_worktree --force on a locked tree falls back to removing the directory" {
+    local wt_path
+    wt_path=$(create_worktree "feat/force-locked" "" "$TEST_REPO" 2>/dev/null)
+    echo "work" > "$wt_path/notes.md"
+    git -C "$TEST_REPO" worktree lock --reason "keep: mine" "$wt_path"
+
+    run remove_worktree "feat/force-locked" 1 0 "$TEST_REPO"
+
+    # git refuses a single --force on a locked tree; the fallback then deletes the path, lock
+    # and untracked work with it. Why an unattended caller passes -y, never --force.
+    [[ "$status" -eq 0 ]]
+    [[ ! -d "$wt_path" ]]
 }
 
 @test "remove_worktree without --force keeps an unmerged branch" {
@@ -130,7 +143,7 @@ _commit_in() {
     cd "$TEST_REPO"
     remove_worktree "feat/unmerged" 0 0 "$TEST_REPO" >/dev/null 2>&1
 
-    ! worktree_exists "feat/unmerged" "$TEST_REPO"      # clean tree → worktree removed
+    run ! worktree_exists "feat/unmerged" "$TEST_REPO"      # clean tree → worktree removed
     git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/unmerged"  # branch kept (-d refused)
 }
 
@@ -142,8 +155,8 @@ _commit_in() {
     cd "$TEST_REPO"
     remove_worktree "feat/unmerged-force" 1 0 "$TEST_REPO" >/dev/null 2>&1
 
-    ! worktree_exists "feat/unmerged-force" "$TEST_REPO"
-    ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/unmerged-force"  # -D dropped it
+    run ! worktree_exists "feat/unmerged-force" "$TEST_REPO"
+    run ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/unmerged-force"  # -D dropped it
 }
 
 @test "remove_worktree deletes the branch when invoked from outside the repo" {
@@ -157,8 +170,8 @@ _commit_in() {
     cd "$TEST_TMPDIR"
     remove_worktree "feat/from-outside" 0 0 "$TEST_REPO" >/dev/null 2>&1
 
-    ! worktree_exists "feat/from-outside" "$TEST_REPO"
-    ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/from-outside"  # branch gone
+    run ! worktree_exists "feat/from-outside" "$TEST_REPO"
+    run ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/from-outside"  # branch gone
 }
 
 @test "cmd_delete reports the branch deleted only when it is gone, from outside the repo" {
@@ -170,7 +183,51 @@ _commit_in() {
     run cmd_delete "feat/outside-cmd" -f -p outside
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"branch deleted"* ]]
-    ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/outside-cmd"
+    run ! git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/outside-cmd"
+}
+
+# ── GATE: -y on a direct delete answers the prompt and keeps both git guards ──
+# An unattended caller (the fleet supervisor's worktree reclaimer) has no terminal to answer
+# the prompt, and must not reach for --force: --force drops the dirty-tree guard and, when git
+# still refuses, falls back to removing the directory by path.
+
+@test "GATE: cmd_delete -y refuses a dirty tree and it stays" {
+    _write_config "yesproj"
+    local wt_path
+    wt_path=$(create_worktree "feat/yes-dirty" "" "$TEST_REPO" 2>/dev/null)
+    echo "uncommitted change" > "$wt_path/README.md"
+    echo "new work" > "$wt_path/notes.md"
+
+    run cmd_delete "feat/yes-dirty" -y --keep-branch -p yesproj < /dev/null
+    [[ "$status" -ne 0 ]]
+    [[ "$status" -ne 2 ]]                               # not a declined prompt: -y answered it
+    worktree_exists "feat/yes-dirty" "$TEST_REPO"
+    [[ "$(cat "$wt_path/README.md")" == "uncommitted change" ]]
+    [[ -f "$wt_path/notes.md" ]]
+}
+
+@test "GATE: cmd_delete -y refuses a locked tree and it stays" {
+    _write_config "yesproj"
+    local wt_path
+    wt_path=$(create_worktree "feat/yes-locked" "" "$TEST_REPO" 2>/dev/null)
+    git -C "$TEST_REPO" worktree lock --reason "keep: mine" "$wt_path"
+
+    run cmd_delete "feat/yes-locked" -y --keep-branch -p yesproj < /dev/null
+    [[ "$status" -ne 0 ]]
+    [[ "$status" -ne 2 ]]
+    [[ -d "$wt_path" ]]
+    worktree_exists "feat/yes-locked" "$TEST_REPO"
+}
+
+@test "cmd_delete -y removes a clean tree with no stdin, and --keep-branch keeps the branch" {
+    _write_config "yesproj"
+    local wt_path
+    wt_path=$(create_worktree "feat/yes-clean" "" "$TEST_REPO" 2>/dev/null)
+
+    run cmd_delete "feat/yes-clean" -y --keep-branch -p yesproj < /dev/null
+    [[ "$status" -eq 0 ]]
+    [[ ! -d "$wt_path" ]]
+    git -C "$TEST_REPO" show-ref --verify --quiet "refs/heads/feat/yes-clean"
 }
 
 # ── SHARP EDGE: the bulk (picker/prune) path is force-by-default ──────────────
@@ -189,7 +246,7 @@ _commit_in() {
     _delete_batch "testproj|feat/bulk|$wt_path" >/dev/null 2>&1
 
     # Pins the missing guard: the picker / `wt prune -y` path discards uncommitted work.
-    ! worktree_exists "feat/bulk" "$TEST_REPO"
+    run ! worktree_exists "feat/bulk" "$TEST_REPO"
     [[ "$(get_worktree_state "testproj" "feat/bulk" "path")" == "" ]]
 }
 
@@ -226,9 +283,7 @@ _commit_in() {
 # appends its own argv to $TEST_TMPDIR/stub.log; initdb additionally mkdirs
 # its -D target so pg_dir "exists" the way a real reset would leave it.
 #
-# Each db reset test opens with `set -e`: setup() runs `set +e`, and under it
-# bats 1.13 reports a failing assertion as ok. Negative assertions count
-# matches rather than using `! grep`, which errexit ignores.
+# Negative assertions count matches rather than using `! grep`, which errexit ignores.
 _db_reset_setup() {
     source "$WT_SCRIPT_DIR/commands/db.sh"
     export HOME="$TEST_TMPDIR/home"
@@ -255,7 +310,6 @@ _db_reset_setup() {
 }
 
 @test "T1: cmd_db_reset on a terminal declining the prompt refuses without wiping" {
-    set -e
     _db_reset_setup
     stdin_is_tty() { return 0; }
 
@@ -267,7 +321,6 @@ _db_reset_setup() {
 }
 
 @test "T1: cmd_db_reset on a terminal accepting the prompt resets" {
-    set -e
     _db_reset_setup
     stdin_is_tty() { return 0; }
 
@@ -278,7 +331,6 @@ _db_reset_setup() {
 }
 
 @test "T3: cmd_db_reset -y and --yes each reset without reading stdin or prompting" {
-    set -e
     local flag
     for flag in -y --yes; do
         _db_reset_setup
@@ -293,7 +345,6 @@ _db_reset_setup() {
 }
 
 @test "T4: cmd_db_reset with a real non-terminal stdin and no --yes refuses, naming --yes" {
-    set -e
     _db_reset_setup
 
     run cmd_db_reset dbreset-branch < /dev/null
@@ -305,7 +356,6 @@ _db_reset_setup() {
 }
 
 @test "wt db reset --help mentions --yes and the declined exit code 2" {
-    set -e
     run "$WT_SCRIPT_DIR/wt.sh" db reset --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"--yes"* ]]
