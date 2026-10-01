@@ -245,7 +245,6 @@ bats tests/ --verbose-run
   - both completion scripts, for every command and subcommand word, aliases included;
   - no short flag naming two different long flags across wt (`wt_short_flag_check`).
 
-  `tests/help_surface.bash`'s header comment carries the full rule list.
 
 ### Writing Tests
 
